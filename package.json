@@ -2,13 +2,14 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.2",
+  "version": "0.0.5",
   "publisher": "xdistribute",
   "license": "UNLICENSED",
   "engines": { "vscode": "^1.105.0" },
   "categories": ["AI", "Other"],
   "keywords": ["mcp", "agent", "remote", "device"],
   "main": "./out/extension.js",
+  "extensionKind": ["ui", "workspace"],
   "activationEvents": ["onStartupFinished"],
   "contributes": {
     "mcpServerDefinitionProviders": [
@@ -17,14 +18,16 @@
     "commands": [
       { "command": "rdh.signIn", "title": "Sign In", "category": "Remote Device Hub" },
       { "command": "rdh.signOut", "title": "Sign Out", "category": "Remote Device Hub" },
-      { "command": "rdh.showStatus", "title": "Show Status", "category": "Remote Device Hub" }
+      { "command": "rdh.showStatus", "title": "Show Status", "category": "Remote Device Hub" },
+      { "command": "rdh.showLogs", "title": "Show Logs", "category": "Remote Device Hub" }
     ]
   },
   "scripts": {
     "compile": "tsc -p ./",
+    "test": "npm run compile && node --test test/*.test.cjs",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
-    "package:vsix": "vsce package --allow-missing-repository"
+    "package:vsix": "vsce package --allow-missing-repository --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
