@@ -76,7 +76,7 @@ function harness(t, options = {}) {
   } };
   const exports = {};
   vm.runInNewContext(source, {
-    exports, require: name => name === 'vscode' ? vscode : require(name),
+    exports, require: name => name === 'vscode' ? vscode : name === './chat' ? { registerChat() {} } : require(name),
     URL, URLSearchParams, Buffer, AbortSignal, AbortController, console,
     setTimeout, clearTimeout, setInterval, clearInterval,
     fetch: async (url, init) => {

@@ -1,42 +1,44 @@
 /**
- * Remote Device Hub · VS Code 扩展 (MVP 脚手架)
+ * Remote Device Hub for VS Code (MVP).
  *
- * 目标: 安装扩展 -> "RDH: Sign In" 登录一次 -> "Remote Device Hub" MCP 服务器
- * 自动出现在 VS Code, 供 Copilot Chat / Agent 使用 (设备文件 / Shell / 进程工具)。
+ * Install the extension, authorize it in your browser, and use device tools
+ * through Copilot Chat or the MCP server provided by this extension.
  *
- * 核心设计 (评审重点):
- *  1. 认证由扩展自己完成: 本机(或远端扩展宿主)起一次性 loopback 回调服务,
- *     用 vscode.env.asExternalUri 转为浏览器可达地址 (远程场景自动隧道),
- *     完全绕开 VS Code 原生 MCP OAuth 的 vscode.dev/redirect + 127.0.0.1:33418 链条。
- *     - 已验证 (2026-10-12): 服务端 DCR 白名单接受 http://127.0.0.1:<任意端口>/callback (HTTP 201)。
- *  2. 令牌存 SecretStorage; 扩展是唯一令牌消费者, 过期前自动刷新,
- *     与服务端 refresh token 轮换 + 重放保护设计匹配。
- *  3. 通过 lm.registerMcpServerDefinitionProvider 动态提供 McpHttpServerDefinition,
- *     以 headers 注入最新 Authorization; 令牌变化时触发 onDidChangeMcpServerDefinitions。
+ * Authentication uses a temporary loopback callback server on the extension
+ * host. asExternalUri makes the callback reachable from the client browser,
+ * including through a tunnel when the extension runs remotely.
+ * The deployment accepted http://127.0.0.1:<port>/callback during DCR testing
+ * on October 12, 2026 (HTTP 201).
+ *
+ * SecretStorage holds the tokens. The extension owns token refresh to avoid
+ * competing refresh requests under the server's rotation and replay protection.
+ * The MCP provider supplies the current Authorization header and fires
+ * onDidChangeMcpServerDefinitions when credentials change.
  */
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as http from 'http';
+import { registerChat } from './chat';
 
-// ================= 可按部署环境调整 =================
+// ================= Deployment settings =================
 const AUTH_BASE = 'https://mcp.xdistribute.site';       // OAuth: register / authorize / token
-const MCP_URI = 'https://xdistribute.site:8090/mcp';    // 数据面 MCP 端点 (直连源站优先)
+const MCP_URI = 'https://xdistribute.site:8090/mcp';    // MCP endpoint; connects directly to the origin
 const RESOURCE = 'https://mcp.xdistribute.site/mcp';
 const SCOPE = 'devices:control';
 
 const PROVIDER_ID = 'xdistribute.remote-device-hub';
 const SERVER_LABEL = 'Remote Device Hub';
 const SECRET_KEY = 'rdh.tokens.v1';
-const REFRESH_MARGIN_S = 180;               // 过期前 180s 开始刷新
-const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 保活检查间隔
-const AUTH_TIMEOUT_MS = 5 * 60 * 1000;      // 授权等待上限
+const REFRESH_MARGIN_S = 180;               // Refresh 180 seconds before expiration
+const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // Periodic token check interval
+const AUTH_TIMEOUT_MS = 5 * 60 * 1000;      // Maximum time allowed for sign-in
 const REQUEST_TIMEOUT_MS = 30 * 1000;
 
 interface TokenSet {
   access_token: string;
   refresh_token?: string;
   expires_in?: number;
-  _got_at?: number;   // 获取时间 (epoch 秒)
+  _got_at?: number;   // Time received, in Unix epoch seconds
   client_id: string;
 }
 
@@ -61,11 +63,21 @@ export function activate(context: vscode.ExtensionContext): void {
     changeEmitter,
   );
 
+  registerChat(context, {
+    endpoint: MCP_URI,
+    ensureSignedIn: async () => {
+      if (await getAcceptedToken(context)) { return true; }
+      await signIn(context);
+      return Boolean(await getAcceptedToken(context));
+    },
+    accessToken: async () => (await getToken(context, false))?.access_token,
+  });
+
   const provider: vscode.McpServerDefinitionProvider<vscode.McpHttpServerDefinition> = {
     onDidChangeMcpServerDefinitions: changeEmitter.event,
     provideMcpServerDefinitions: async () => {
-      // VS Code 在提交聊天消息时的自动启动扫描 (chat.mcp.autostart) 或 MCP 视图中询问服务器定义。
-      // 即使未登录也返回定义: 服务器会出现在列表中, 真正启动时走 resolve 引导登录。
+      // VS Code requests definitions during chat autostart scans or from the MCP view.
+      // Advertise the server before sign-in; resolve handles authentication when it starts.
       try {
         const t = await getToken(context, false);
         log.debug(t
@@ -78,7 +90,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     },
     resolveMcpServerDefinition: async () => {
-      // VS Code 即将启动服务器时回调: 确保有有效令牌, 否则引导登录后再放行
+      // Validate credentials before VS Code starts the server; sign in if needed.
       try {
         let t = await getAcceptedToken(context);
         if (!t) {
@@ -104,14 +116,14 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.lm.registerMcpServerDefinitionProvider(PROVIDER_ID, provider));
   log.info('MCP server definition provider registered; VS Code starts the server on demand (chat / MCP view).');
 
-  // 保活刷新 (惰性刷新兜底)
+  // Check periodically; requests also refresh tokens as needed.
   const timer = setInterval(() => {
     log.debug('keep-alive token check');
     void getToken(context, false);
   }, REFRESH_INTERVAL_MS);
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(timer)));
 
-  // 安装后 Reload / 启动时直接进入登录，不要求用户再执行命令或点击 Sign In。
+  // Start sign-in after activation when needed, without a separate user command.
   log.info('activation: checking saved credentials with the MCP server');
   void getAcceptedToken(context).then((t) => {
     if (!t) {
@@ -136,7 +148,7 @@ function makeServer(t?: TokenSet): vscode.McpHttpServerDefinition {
   );
 }
 
-// ---------------------------------------------------------------- 令牌管理
+// ---------------------------------------------------------------- Token management
 
 async function getToken(context: vscode.ExtensionContext, interactive: boolean): Promise<TokenSet | undefined> {
   const raw = await context.secrets.get(SECRET_KEY);
@@ -147,7 +159,7 @@ async function getToken(context: vscode.ExtensionContext, interactive: boolean):
       || typeof t.client_id !== 'string' || !t.client_id) { return undefined; }
   if (!isExpiring(t)) { return t; }
 
-  // 单飞刷新: 同一时刻只有一个刷新在途 (避免与轮换/重放保护冲突)
+  // Share one refresh request to avoid token rotation and replay conflicts.
   const fresh = await refreshToken(context, t);
   if (!fresh && interactive) {
     vscode.window.showErrorMessage('Remote Device Hub: token refresh failed, please sign in again');
@@ -173,8 +185,8 @@ function getAcceptedToken(context: vscode.ExtensionContext): Promise<TokenSet | 
   return credentialCheckInflight;
 }
 
-// 本地时间尚未过期不代表服务端仍接受令牌。先发无副作用的 MCP ping，
-// 让失效凭据在扩展内恢复，避免启动后由 VS Code 的原生 OAuth 接管。
+// A locally unexpired token may have been revoked. Check it with an MCP ping
+// so this extension can recover before VS Code starts its own OAuth flow.
 async function acceptsToken(t: TokenSet): Promise<boolean> {
   const resp = await fetch(MCP_URI, {
     method: 'POST',
@@ -235,7 +247,7 @@ async function doRefresh(context: vscode.ExtensionContext, t: TokenSet): Promise
   }
 }
 
-// ---------------------------------------------------------------- 登录流程
+// ---------------------------------------------------------------- Sign-in flow
 
 function signIn(context: vscode.ExtensionContext): Promise<void> {
   if (!signInInflight) {
@@ -266,11 +278,11 @@ async function runSignIn(
     const cb = await startCallbackServer();
     log.info(`sign-in started; waiting for browser callback on 127.0.0.1:${cb.port}`);
     try {
-      // asExternalUri: 远程场景自动建立端口隧道, 返回浏览器侧可达地址; 不要缓存结果
+      // asExternalUri forwards remote ports for the client browser. Do not cache the URI.
       const redirectUri = (await abortable(vscode.env.asExternalUri(
         vscode.Uri.parse(`http://127.0.0.1:${cb.port}/callback`)), signal, 'callback forwarding')).toString(true);
 
-      // 1) 动态注册客户端 (RFC 7591)
+      // 1) Register the client dynamically (RFC 7591)
       progress.report({ message: 'Preparing authorization…' });
       const requestSignal = () => AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
       const reg = await fetch(`${AUTH_BASE}/register`, {
@@ -296,7 +308,7 @@ async function runSignIn(
       const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
       const state = base64url(crypto.randomBytes(16));
 
-      // 3) 打开浏览器授权
+      // 3) Open the browser for authorization
       const authUrl = new URL(`${AUTH_BASE}/authorize`);
       const params: Record<string, string> = {
         response_type: 'code',
@@ -320,14 +332,14 @@ async function runSignIn(
         await vscode.env.clipboard.writeText(authUrl.toString());
       }
 
-      // 4) 等待回调
+      // 4) Wait for the callback
       progress.report({ message: 'Complete authorization in your browser…' });
       const result = await abortable(cb.waitForCode(state, AUTH_TIMEOUT_MS), signal, 'authorization', AUTH_TIMEOUT_MS);
       if (result.error) {
         throw new Error(`${result.error} ${result.errorDescription ?? ''}`);
       }
 
-      // 5) 换取令牌
+      // 5) Exchange the authorization code for tokens
       const body = new URLSearchParams({
         grant_type: 'authorization_code',
         code: result.code ?? '',
@@ -392,7 +404,7 @@ async function showStatus(context: vscode.ExtensionContext): Promise<void> {
     `Remote Device Hub: signed in, token auto-refreshes (expires in ${secs}s)`);
 }
 
-// ---------------------------------------------------------------- 一次性回调服务
+// ---------------------------------------------------------------- Temporary callback server
 
 interface CallbackResult {
   code?: string;
@@ -458,7 +470,7 @@ function startCallbackServer(): Promise<{
   });
 }
 
-// ---------------------------------------------------------------- 工具
+// ---------------------------------------------------------------- Helpers
 
 function abortable<T>(work: Thenable<T>, signal: AbortSignal, stage: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
   let cleanup = () => {};

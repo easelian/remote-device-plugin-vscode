@@ -1,97 +1,113 @@
-# remote-device-vscode
+# Remote Device Hub for VS Code
 
-Remote Device Hub 的 VS Code 扩展（**MVP 脚手架，待评审**）。
+Remote Device Hub is a VS Code extension for working with your authorized remote devices through Copilot Chat and MCP. This is an MVP pending review.
 
-使用流程：安装扩展并 Reload → 自动打开浏览器授权 → “Remote Device Hub” MCP
-服务器自动出现在 VS Code，供 Copilot Chat / Agent 使用（设备文件、Shell、进程等 22 个工具）。
+Install the extension and reload VS Code. If you need to sign in, the extension opens your browser automatically. Once authorized, you can use the device file, shell, and process tools through `@remote-device-hub` or the Remote Device Hub MCP server.
 
-## 为什么需要扩展（而不是只发一段 mcp.json）
+## Why use an extension?
 
-- VS Code 原生 MCP OAuth 依赖 `vscode.dev/redirect` + 本机 `127.0.0.1:33418`，
-  在远程开发 / 受限网络（本项目的实际使用环境）下不可达（已实测）；
-- 服务端令牌 1 小时过期 + 轮换 / 重放保护：静态 mcp.json 无法自动刷新，多消费者会互抢（已实测）；
-- 扩展自己完成认证与刷新（唯一令牌消费者），把最新令牌注入 MCP 服务器定义，首次在浏览器中授权，之后自动刷新。
+- In earlier tests in this project's remote development environment, the built-in MCP OAuth redirect chain through `vscode.dev/redirect` and local port `127.0.0.1:33418` was unreachable.
+- The deployed service uses one-hour access tokens, refresh token rotation, and replay protection. A static token in `mcp.json` cannot refresh itself, and competing refresh clients can invalidate one another's tokens.
+- The extension manages sign-in and token refresh, then supplies the current Authorization header to its MCP server definition. You authorize access in your browser the first time; the extension handles subsequent refreshes.
 
-## 认证流程（按服务端当前能力设计，**无需服务端改动**）
+## Authentication
 
-1. 扩展优先运行在本地；仅安装在 SSH 端时也可运行在远端。扩展在所在主机的`127.0.0.1` 随机端口起一个一次性回调服务；
-2. `vscode.env.asExternalUri` 把它转成浏览器可达地址（远程场景自动建立端口隧道）；
-3. 动态注册客户端（DCR）→ 打开浏览器完成 Google 授权（PKCE）→ 回调收到 code → 换 token；
-4. 令牌存 `SecretStorage`；过期前自动 refresh；变更时 `onDidChangeMcpServerDefinitions` 通知。
-5. MCP 启动前发送无副作用的 `ping` 检查令牌。收到 401/403 时先刷新，无法恢复则自动打开浏览器重新授权；检查失败时不启动 MCP。
+The extension uses the service's existing authentication endpoints. No server changes are required for this flow.
 
-> ✅ 已验证（2026-10-12）：服务端回调白名单接受 `http://127.0.0.1:<任意端口>/callback`（HTTP 201）。
+1. The extension prefers to run locally but can run on an SSH host if installed only there. It starts a temporary callback server on a random `127.0.0.1` port on its host.
+2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
+3. The extension registers an OAuth client dynamically, opens Google sign-in with PKCE, receives the authorization code, and exchanges it for tokens.
+4. Tokens are stored in `SecretStorage`. The extension refreshes them before expiration and fires `onDidChangeMcpServerDefinitions` when they change.
+5. Before MCP startup, a side-effect-free `ping` checks whether the service accepts the token. A 401 or 403 triggers a refresh attempt, followed by browser sign-in if needed. The MCP server does not start if the credential check fails.
 
-## MCP 服务器如何被启动（自动启动机制）
+A deployment test on October 12, 2026 confirmed that dynamic client registration accepted `http://127.0.0.1:<port>/callback` with HTTP 201.
 
-VS Code 不允许扩展在安装后立即强制启动 MCP 服务器；正确且唯一的机制是：
+## Startup and sign-in
 
-1. 扩展激活（`onStartupFinished`）后注册 `lm.registerMcpServerDefinitionProvider`，服务器出现在 MCP 服务器列表；
-2. **提交聊天消息时** VS Code 执行自动启动扫描（设置 `chat.mcp.autostart`，默认 `newAndOutdated`：启动“从未运行过”的服务器；被禁用或处于错误状态的服务器会被跳过）；
-3. 首次启动弹出信任确认（扩展提供的服务器属于独立信任来源，与工作区信任分离）；
-4. 启动前回调 `resolveMcpServerDefinition`：扩展在此确保有有效令牌（否则自动打开浏览器登录），返回带最新 Authorization 的定义后服务器才会真正连接。
+The extension registers its MCP provider during activation with `lm.registerMcpServerDefinitionProvider`. VS Code controls when the MCP server starts, including on-demand startup from chat and manual startup from the MCP server list. The `chat.mcp.autostart` setting controls automatic startup; a disabled server or a server in an error state may require manual intervention. Complete any trust prompt that VS Code displays.
 
-扩展激活时先向 MCP 服务检查保存的令牌；令牌缺失或被拒绝且刷新失败时，会直接调用浏览器登录流程，无需执行 `Sign In` 命令。通过聊天（包括 `@` 选择代理后发起需要设备工具的请求）或 MCP 列表启动服务器时，也会检查凭据并按需自动登录；仅输入 `@` 字符不会触发扩展认证。
+Before starting the server, VS Code calls `resolveMcpServerDefinition`. The extension checks credentials, opens browser sign-in if needed, and returns a definition with the current Authorization header.
 
-本地 VS Code：安装 VSIX 后执行 `Developer: Reload Window`，在自动打开的浏览器中授权。
-Remote SSH：建议在客户端本地安装；扩展声明 `extensionKind: ["ui", "workspace"]`，优先运行在本地。若仅在 SSH 端安装，则由 `asExternalUri` 转发回调端口，`openExternal` 仍请求客户端打开浏览器，不调用 SSH 服务器上的浏览器程序。
+Activation also checks saved credentials with the service. If credentials are missing, or the service rejects them and refresh fails, the extension opens sign-in automatically. You do not need to run the `Sign In` command. Sending a request to `@remote-device-hub` also checks credentials; typing `@` alone does not start authentication.
 
-激活、MCP 启动和手动命令同时触发时，共用一次登录，避免重复打开网页。登录进度通知支持取消；取消后本次 MCP 启动停止，后续再次启动可重新授权。浏览器 API 返回失败时可选择 `Copy Link`，在客户端浏览器打开链接。`Sign In` 命令保留为手动重试入口。
+**Local VS Code:** Install the VSIX, run `Developer: Reload Window`, and complete authorization in your browser if prompted.
 
-若仍看到 VS Code 自带的 MCP OAuth 提示，先在 `MCP: List Servers` 中核对服务器来源是否为本扩展；另行配置在 `mcp.json` 中的同名服务器不经过扩展登录流程。运行中的连接若被服务端撤销凭据，需要停止并重新启动，让扩展重新检查令牌。
+**Remote SSH:** Install on the local client when possible. With `extensionKind: ["ui", "workspace"]`, the extension prefers the local host. If installed only on the SSH host, `asExternalUri` forwards the callback port and `openExternal` asks the client to open the browser. The extension does not launch a browser on the SSH host.
 
-排查“没有自动启动”：
+Activation, MCP startup, and manual sign-in share one pending login flow, preventing duplicate browser windows. You can cancel sign-in from the progress notification. Canceling stops the pending MCP startup; starting it again can initiate another sign-in attempt. If the browser API reports failure, choose `Copy Link` and open the link in your local browser. The `Sign In` command remains available for manual retries.
 
-- `Remote Device Hub: Show Status` 确认已登录；
-- 命令面板 `MCP: List Servers` 查看服务器状态，可直接 Start / Show Output；
-- 若首次信任弹窗被拒绝：命令面板 `MCP: Reset Trust` 重置后再启动；
-- 若 `chat.mcp.autostart` 被设为 `never`，需手动 Start（或改回默认）；
-- 扩展侧诊断日志：命令面板 `Remote Device Hub: Show Logs`。
+If VS Code still displays its built-in MCP OAuth prompt, check the server's source in `MCP: List Servers`. A separate entry in `mcp.json`, even with the same name, does not use this extension's sign-in flow. If the service revokes credentials for a running connection, stop and restart that server so the extension can check them again.
 
-> ⚠️ 扩展提供的 MCP 服务器目前仅在运行该扩展的编辑器窗口的会话中可用；
-> Agents window（Agent Host 会话）的 MCP 配置来源是工作区 `.mcp.json` 与用户 `~/.copilot/mcp-config.json`（该场景的分发见“待办”）。
+If the MCP server does not start:
 
-## 开发
+- Run `Remote Device Hub: Show Status` to check your sign-in status.
+- Open `MCP: List Servers` and use **Start** or **Show Output**.
+- If you declined a trust prompt, use `MCP: Reset Trust` and try again.
+- If `chat.mcp.autostart` is set to `never`, start the server manually or change that setting.
+- Run `Remote Device Hub: Show Logs` for extension diagnostics.
+
+The extension's MCP provider is available in the editor window running the extension. Separate Agent Host sessions in the Agents window use their own configuration, including workspace `.mcp.json` and user `~/.copilot/mcp-config.json`. Support for distributing those configurations is still planned.
+
+## Use Remote Device Hub in Copilot Chat
+
+Install the latest VSIX and run `Developer: Reload Window`. In Copilot Chat, type `@remote-device-hub` and select it from the suggestions. Then describe your task:
+
+- `@remote-device-hub List my authorized devices.`
+- `@remote-device-hub Check free disk space on device kylin-pc-a5704092.` Replace the example ID with one returned for your account. Shell commands require confirmation before they run.
+
+There is one chat entry point: `@remote-device-hub`. No slash commands are required. The gray placeholder shows examples; pressing Tab does not insert that text. An empty request displays a brief input hint if the client allows it to be sent.
+
+The chat participant shares the extension's authentication and token refresh logic and connects directly to the same RDH MCP service. You do not need to enable the server in the Agent mode tool picker first. Regular Agent mode can still use the existing MCP provider.
+
+Natural-language requests use the model selected in the chat window. That model must support tool calling. Recent text exchanges with this participant provide context for follow-up requests, while tools retrieve current device information. Writes, shell commands, and operations outside the read-only allowlist require confirmation. Declining stops the request. Network failures do not automatically replay tool calls, and canceling chat does not undo operations already sent to a device.
+
+The chat client targets RDH's stateless Streamable HTTP configuration with JSON responses; it is not a general-purpose MCP client. Tests cover simulated models, authentication responses, and MCP requests. Completion suggestions and actual model calls still need verification in the Copilot client.
+
+## Development
 
 ```bash
 npm install
-npm run compile     # 或 npm run watch
-npm test            # 需要允许监听本机 127.0.0.1 临时端口
+npm run compile     # Or use npm run watch during development
+npm test            # Requires permission to listen on temporary 127.0.0.1 ports
+npm run package:vsix
 ```
 
-按 `F5` 启动扩展开发宿主；未登录时应自动打开授权页。回归测试使用模拟的 VS Code API 和认证响应、真实 HTTP 回调，以及不同端口间的转发；不使用真实账号，也不代替实际 Remote SSH 窗口中的浏览器验收。
+Press `F5` to launch the Extension Development Host. If you are not signed in, the browser authorization page should open automatically. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
 
-## 目录
+## Project layout
 
-| 文件 | 说明 |
+| File | Purpose |
 |---|---|
-| `src/extension.ts` | 全部逻辑（认证 / 令牌管理 / MCP 提供器） |
-| `.vscode/launch.json` | F5 调试配置 |
-| `package.json` | `contributes.mcpServerDefinitionProviders` + 命令 |
+| `src/extension.ts` | Authentication, token management, and the MCP provider |
+| `src/chat.ts` | Chat participant, model tool calls, and the MCP HTTP client |
+| `.vscode/launch.json` | F5 launch configuration |
+| `package.json` | Extension metadata, MCP provider, chat participant, and commands |
 
-## 待办（评审后推进）
+## Planned work
 
-- [ ] publisher / name 确认（当前占位 `xdistribute` / `remote-device-hub`）与版本策略
-- [ ] 图标、中英文文案、i18n（当前 UI 字符串为英文，注释中文）
-- [ ] 设置项改为 `contributes.configuration`（服务地址、是否走 :8090 直连等）
-- [ ] 远程场景实测：Remote-SSH（浏览器在客户端 + 扩展宿主在远端，验证 asExternalUri 隧道）
-- [ ] 打包发布：`vsce package` → 挂到 RDH 服务 `downloads` 目录 / Marketplace / Open VSX
-- [ ] （服务端, 可选）`device_code` 流程：无浏览器 / CI 环境兜底
-- [ ] Agents window：为 Agent Host 会话提供 `.mcp.json` / `~/.copilot/mcp-config.json` 分发路径
-- [ ] （后续版本）设备树视图、状态栏、每设备快捷操作
+- [ ] Confirm the publisher, extension name, and versioning policy. The current identifiers are `xdistribute` and `remote-device-hub`.
+- [ ] Add an icon and localization support. Documentation, comments, and UI text currently use American English.
+- [ ] Expose deployment settings through `contributes.configuration`, including service URLs and direct connections on port 8090.
+- [ ] Test an actual Remote SSH session with a client-side browser and a remote extension host, including the `asExternalUri` tunnel.
+- [ ] Publish VSIX packages through the RDH service's `downloads` directory, Marketplace, or Open VSX.
+- [ ] Consider a server-side `device_code` flow for environments without a browser, including CI.
+- [ ] Provide `.mcp.json` and `~/.copilot/mcp-config.json` configuration for Agent Host sessions.
+- [ ] Add a device tree, status bar integration, and per-device actions in a later release.
 
-## 已知限制（MVP）
+## Known limitations
 
-- 启动前的令牌检查面向当前无状态 HTTP MCP 服务；不保证已经运行的连接即时接收刷新后的凭据。服务端撤销令牌后需重新启动 MCP。
-- 同一窗口内多工作区共享同一份令牌（符合"单消费者"设计）
+- Credential checks target the current stateless HTTP MCP service. An existing connection is not guaranteed to pick up refreshed credentials immediately. Restart MCP if the service revokes its token.
+- Workspaces in the same window share stored credentials. Refresh coordination is scoped to the extension host.
 
-## 构建记录
+## Build history
 
-- `remote-device-hub-0.0.5.vsix`：Reload 后也执行服务端凭据检查；记录跳过授权的原因，与 MCP 启动共享在途检查。
+- `remote-device-hub-0.0.9.vsix`: Updated documentation, comments, UI text, model instructions, and test fixtures to American English.
+- `remote-device-hub-0.0.8.vsix`: Kept one `@remote-device-hub` entry point, removed slash commands and follow-up buttons, and added natural-language examples to the input hint.
+- `remote-device-hub-0.0.7.vsix`: Added clearer input guidance, `/help`, empty-request guidance, and suggested follow-ups. These additional controls were removed in 0.0.8.
+- `remote-device-hub-0.0.6.vsix`: Added `@remote-device-hub` and `/devices`, sharing authentication and supporting model tool calls, confirmation, and cancellation.
+- `remote-device-hub-0.0.5.vsix`: Added server-side credential checks after reload, logged why sign-in was skipped, and shared pending checks with MCP startup.
+- `remote-device-hub-0.0.4.vsix`: Added automatic browser sign-in, checks for rejected credentials before startup, shared sign-in requests, cancellation, timeouts, and support for local execution and SSH callback forwarding.
+- `remote-device-hub-0.0.3.vsix`: Built on October 12, 2026 using npm. Added the output channel and `Remote Device Hub: Show Logs`, provider error handling and logging, and startup troubleshooting documentation.
+- `remote-device-hub-0.0.2.vsix`: Built on October 12, 2026. Added a sign-in prompt on activation when no credentials were available. Installation was verified with `code-server --install-extension`.
 
-- `remote-device-hub-0.0.4.vsix`：自动触发浏览器授权、启动前检查失效令牌、合并并发登录、取消与超时处理、本地优先及 SSH 回调转发支持。
-
-- `remote-device-hub-0.0.3.vsix`：2026-10-12 构建（v0.0.3 新增：输出日志通道 + `Remote Device Hub: Show Logs` 命令；`provide`/`resolve` 启动链路容错与日志；README 补充自动启动机制与排查指南），使用 npm 标准流程构建。
-- `remote-device-hub-0.0.2.vsix`：2026-10-12 构建（v0.0.2 新增“激活时未登录即主动提示登录”），已通过 `code-server --install-extension` 安装验证。
-- 构建环境：npm 已在本环境恢复可用（npm 10.9.0 / node v22.11.0），标准流程 `npm install && npm run compile && npm run package:vsix` 工作正常；
-  此前“无 npm 构建”（npmmirror 摊平依赖 + 手工打包）已不再需要。
+The recorded build environment uses npm 10.9.0 and Node.js 22.11.0. Standard npm installation, compilation, and packaging are available. The earlier workaround using an npm mirror and manual packaging is no longer needed.
