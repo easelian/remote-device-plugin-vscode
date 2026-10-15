@@ -18,6 +18,7 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as http from 'http';
+import { withCredentialLock } from './credentialLock';
 import { registerChat } from './chat';
 
 // ================= Deployment settings =================
@@ -62,6 +63,10 @@ export function activate(context: vscode.ExtensionContext): void {
     new vscode.Disposable(() => signInAbort?.abort()),
     changeEmitter,
   );
+
+  context.subscriptions.push(context.secrets.onDidChange(event => {
+    if (event.key === SECRET_KEY) { changeEmitter.fire(); }
+  }));
 
   registerChat(context, {
     endpoint: MCP_URI,
@@ -119,7 +124,7 @@ export function activate(context: vscode.ExtensionContext): void {
   // Check periodically; requests also refresh tokens as needed.
   const timer = setInterval(() => {
     log.debug('keep-alive token check');
-    void getToken(context, false);
+    void getToken(context, false).catch(e => log.warn(`periodic refresh deferred: ${msg(e)}`));
   }, REFRESH_INTERVAL_MS);
   context.subscriptions.push(new vscode.Disposable(() => clearInterval(timer)));
 
@@ -168,7 +173,14 @@ async function getToken(context: vscode.ExtensionContext, interactive: boolean):
 }
 
 function refreshToken(context: vscode.ExtensionContext, t: TokenSet): Promise<TokenSet | undefined> {
-  refreshInflight = refreshInflight ?? doRefresh(context, t).finally(() => { refreshInflight = undefined; });
+  refreshInflight = refreshInflight ?? withCredentialLock(context.globalStorageUri.fsPath, async () => {
+    // Another extension host may have rotated the token while we waited.
+    const raw = await context.secrets.get(SECRET_KEY);
+    if (!raw) { return undefined; }
+    const current = JSON.parse(raw) as TokenSet;
+    if (JSON.stringify(current) !== JSON.stringify(t)) { return current; }
+    return doRefresh(context, current);
+  }).finally(() => { refreshInflight = undefined; });
   return refreshInflight;
 }
 
@@ -183,6 +195,17 @@ function getAcceptedToken(context: vscode.ExtensionContext): Promise<TokenSet | 
     return t;
   })().finally(() => { credentialCheckInflight = undefined; });
   return credentialCheckInflight;
+}
+
+async function getAcceptedTokenUnlocked(context: vscode.ExtensionContext): Promise<TokenSet | undefined> {
+  const raw = await context.secrets.get(SECRET_KEY);
+  if (!raw) { return undefined; }
+  let t: TokenSet;
+  try { t = JSON.parse(raw); } catch { return undefined; }
+  if (!t?.access_token || !t.client_id) { return undefined; }
+  if (!isExpiring(t) && await acceptsToken(t)) { return t; }
+  const fresh = await doRefresh(context, t);
+  return fresh && await acceptsToken(fresh) ? fresh : undefined;
 }
 
 // A locally unexpired token may have been revoked. Check it with an MCP ping
@@ -201,7 +224,7 @@ async function acceptsToken(t: TokenSet): Promise<boolean> {
   });
   await resp.body?.cancel();
   log.info(`MCP credential check: HTTP ${resp.status}`);
-  if (resp.status === 401 || resp.status === 403) { return false; }
+  if (resp.status === 401) { return false; }
   if (!resp.ok) { throw new Error(`MCP credential check failed: HTTP ${resp.status}`); }
   return true;
 }
@@ -227,7 +250,11 @@ async function doRefresh(context: vscode.ExtensionContext, t: TokenSet): Promise
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     });
-    if (!resp.ok) { throw new Error(`HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`); }
+    if (!resp.ok) {
+      const error = await resp.json().catch(() => ({})) as { error?: string };
+      if (resp.status === 400 && error.error === 'invalid_grant') { return undefined; }
+      throw new Error(`token refresh HTTP ${resp.status}; credentials retained`);
+    }
     const data = await resp.json() as Partial<TokenSet>;
     if (!data.access_token) { throw new Error('token response has no access_token'); }
     const next: TokenSet = {
@@ -243,7 +270,7 @@ async function doRefresh(context: vscode.ExtensionContext, t: TokenSet): Promise
   } catch (e) {
     log.warn(`token refresh failed (will retry later): ${msg(e)}`);
     console.error('[rdh] token refresh failed:', e);
-    return undefined;
+    throw e;
   }
 }
 
@@ -273,100 +300,104 @@ async function runSignIn(
   const deadline = setTimeout(() => controller.abort(new Error('sign-in timed out')), AUTH_TIMEOUT_MS);
   const signal = controller.signal;
   try {
-    signal.throwIfAborted();
-    progress.report({ message: 'Preparing browser callback…' });
-    const cb = await startCallbackServer();
-    log.info(`sign-in started; waiting for browser callback on 127.0.0.1:${cb.port}`);
-    try {
-      // asExternalUri forwards remote ports for the client browser. Do not cache the URI.
-      const redirectUri = (await abortable(vscode.env.asExternalUri(
-        vscode.Uri.parse(`http://127.0.0.1:${cb.port}/callback`)), signal, 'callback forwarding')).toString(true);
-
-      // 1) Register the client dynamically (RFC 7591)
-      progress.report({ message: 'Preparing authorization…' });
-      const requestSignal = () => AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
-      const reg = await fetch(`${AUTH_BASE}/register`, {
-        method: 'POST',
-        signal: requestSignal(),
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          client_name: 'VS Code Remote Device Hub',
-          redirect_uris: [redirectUri],
-          grant_types: ['authorization_code', 'refresh_token'],
-          response_types: ['code'],
-          token_endpoint_auth_method: 'none',
-        }),
-      });
-      if (reg.status !== 200 && reg.status !== 201) {
-        throw new Error(`register HTTP ${reg.status}: ${(await reg.text()).slice(0, 200)}`);
-      }
-      const { client_id: clientId } = await reg.json() as { client_id: string };
-      if (!clientId) { throw new Error('registration response has no client_id'); }
-
-      // 2) PKCE + state
-      const verifier = base64url(crypto.randomBytes(48));
-      const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
-      const state = base64url(crypto.randomBytes(16));
-
-      // 3) Open the browser for authorization
-      const authUrl = new URL(`${AUTH_BASE}/authorize`);
-      const params: Record<string, string> = {
-        response_type: 'code',
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        code_challenge: challenge,
-        code_challenge_method: 'S256',
-        scope: SCOPE,
-        state,
-        resource: RESOURCE,
-      };
-      for (const [k, v] of Object.entries(params)) { authUrl.searchParams.set(k, v); }
-      progress.report({ message: 'Opening authorization in your local browser…' });
-      const opened = await abortable(vscode.env.openExternal(vscode.Uri.parse(authUrl.toString())), signal, 'browser opening');
-      if (!opened) {
-        const pick = await abortable(vscode.window.showWarningMessage(
-          'Remote Device Hub: could not open the browser. Copy the authorization link and open it in your local browser.',
-          'Copy Link'), signal, 'browser fallback', AUTH_TIMEOUT_MS);
-        if (pick !== 'Copy Link') { return; }
-        signal.throwIfAborted();
-        await vscode.env.clipboard.writeText(authUrl.toString());
-      }
-
-      // 4) Wait for the callback
-      progress.report({ message: 'Complete authorization in your browser…' });
-      const result = await abortable(cb.waitForCode(state, AUTH_TIMEOUT_MS), signal, 'authorization', AUTH_TIMEOUT_MS);
-      if (result.error) {
-        throw new Error(`${result.error} ${result.errorDescription ?? ''}`);
-      }
-
-      // 5) Exchange the authorization code for tokens
-      const body = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: result.code ?? '',
-        redirect_uri: redirectUri,
-        client_id: clientId,
-        code_verifier: verifier,
-        resource: RESOURCE,
-      });
-      const resp = await fetch(`${AUTH_BASE}/token`, {
-        method: 'POST',
-        signal: requestSignal(),
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-      });
-      if (!resp.ok) { throw new Error(`token HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`); }
-      const tok = await resp.json() as TokenSet;
-      if (!tok.access_token) { throw new Error('token response has no access_token'); }
+    await withCredentialLock(context.globalStorageUri.fsPath, async () => {
       signal.throwIfAborted();
-      tok.client_id = clientId;
-      tok._got_at = Date.now() / 1000;
-      await context.secrets.store(SECRET_KEY, JSON.stringify(tok));
-      log.info('signed in; token stored; asked VS Code to pick up new credentials');
-      changeEmitter.fire();
-      vscode.window.showInformationMessage('Remote Device Hub: signed in');
-    } finally {
-      cb.close();
-    }
+      // Recheck after acquiring ownership: another window may have signed in.
+      if (await getAcceptedTokenUnlocked(context)) { return; }
+      progress.report({ message: 'Preparing browser callback…' });
+      const cb = await startCallbackServer();
+      log.info(`sign-in started; waiting for browser callback on 127.0.0.1:${cb.port}`);
+      try {
+        // asExternalUri forwards remote ports for the client browser. Do not cache the URI.
+        const redirectUri = (await abortable(vscode.env.asExternalUri(
+          vscode.Uri.parse(`http://127.0.0.1:${cb.port}/callback`)), signal, 'callback forwarding')).toString(true);
+
+        // 1) Register the client dynamically (RFC 7591)
+        progress.report({ message: 'Preparing authorization…' });
+        const requestSignal = () => AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+        const reg = await fetch(`${AUTH_BASE}/register`, {
+          method: 'POST',
+          signal: requestSignal(),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            client_name: 'VS Code Remote Device Hub',
+            redirect_uris: [redirectUri],
+            grant_types: ['authorization_code', 'refresh_token'],
+            response_types: ['code'],
+            token_endpoint_auth_method: 'none',
+          }),
+        });
+        if (reg.status !== 200 && reg.status !== 201) {
+          throw new Error(`register HTTP ${reg.status}: ${(await reg.text()).slice(0, 200)}`);
+        }
+        const { client_id: clientId } = await reg.json() as { client_id: string };
+        if (!clientId) { throw new Error('registration response has no client_id'); }
+
+        // 2) PKCE + state
+        const verifier = base64url(crypto.randomBytes(48));
+        const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
+        const state = base64url(crypto.randomBytes(16));
+
+        // 3) Open the browser for authorization
+        const authUrl = new URL(`${AUTH_BASE}/authorize`);
+        const params: Record<string, string> = {
+          response_type: 'code',
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          code_challenge: challenge,
+          code_challenge_method: 'S256',
+          scope: SCOPE,
+          state,
+          resource: RESOURCE,
+        };
+        for (const [k, v] of Object.entries(params)) { authUrl.searchParams.set(k, v); }
+        progress.report({ message: 'Opening authorization in your local browser…' });
+        const opened = await abortable(vscode.env.openExternal(vscode.Uri.parse(authUrl.toString())), signal, 'browser opening');
+        if (!opened) {
+          const pick = await abortable(vscode.window.showWarningMessage(
+            'Remote Device Hub: could not open the browser. Copy the authorization link and open it in your local browser.',
+            'Copy Link'), signal, 'browser fallback', AUTH_TIMEOUT_MS);
+          if (pick !== 'Copy Link') { return; }
+          signal.throwIfAborted();
+          await vscode.env.clipboard.writeText(authUrl.toString());
+        }
+
+        // 4) Wait for the callback
+        progress.report({ message: 'Complete authorization in your browser…' });
+        const result = await abortable(cb.waitForCode(state, AUTH_TIMEOUT_MS), signal, 'authorization', AUTH_TIMEOUT_MS);
+        if (result.error) {
+          throw new Error(`${result.error} ${result.errorDescription ?? ''}`);
+        }
+
+        // 5) Exchange the authorization code for tokens
+        const body = new URLSearchParams({
+          grant_type: 'authorization_code',
+          code: result.code ?? '',
+          redirect_uri: redirectUri,
+          client_id: clientId,
+          code_verifier: verifier,
+          resource: RESOURCE,
+        });
+        const resp = await fetch(`${AUTH_BASE}/token`, {
+          method: 'POST',
+          signal: requestSignal(),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        });
+        if (!resp.ok) { throw new Error(`token HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`); }
+        const tok = await resp.json() as TokenSet;
+        if (!tok.access_token) { throw new Error('token response has no access_token'); }
+        signal.throwIfAborted();
+        tok.client_id = clientId;
+        tok._got_at = Date.now() / 1000;
+        await context.secrets.store(SECRET_KEY, JSON.stringify(tok));
+        log.info('signed in; token stored; asked VS Code to pick up new credentials');
+        changeEmitter.fire();
+        vscode.window.showInformationMessage('Remote Device Hub: signed in');
+      } finally {
+        cb.close();
+      }
+    }, signal);
   } catch (e) {
     if (signal.aborted && signal.reason?.name === 'AbortError') {
       log.info('sign-in cancelled');
@@ -384,7 +415,7 @@ async function runSignIn(
 async function signOut(context: vscode.ExtensionContext): Promise<void> {
   signInAbort?.abort();
   await signInInflight;
-  await context.secrets.delete(SECRET_KEY);
+  await withCredentialLock(context.globalStorageUri.fsPath, () => context.secrets.delete(SECRET_KEY));
   log.info('signed out; MCP server will request sign-in again on next start');
   changeEmitter.fire();
   vscode.window.showInformationMessage('Remote Device Hub: signed out');

@@ -14,7 +14,7 @@ Install the extension and reload VS Code. If you need to sign in, the extension 
 
 The extension uses the service's existing authentication endpoints. No server changes are required for this flow.
 
-1. The extension prefers to run locally but can run on an SSH host if installed only there. It starts a temporary callback server on a random `127.0.0.1` port on its host.
+1. The extension runs in the workspace extension host (`extensionKind: ["workspace"]`), which on an SSH host is the remote host. This keeps it in the same extension host as language-model providers, so `@remote-device-hub` can resolve the selected chat model. It starts a temporary callback server on a random `127.0.0.1` port on its host.
 2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
 3. The extension registers an OAuth client dynamically, opens Google sign-in with PKCE, receives the authorization code, and exchanges it for tokens.
 4. Tokens are stored in `SecretStorage`. The extension refreshes them before expiration and fires `onDidChangeMcpServerDefinitions` when they change.
@@ -32,7 +32,7 @@ Activation also checks saved credentials with the service. If credentials are mi
 
 **Local VS Code:** Install the VSIX, run `Developer: Reload Window`, and complete authorization in your browser if prompted.
 
-**Remote SSH:** Install on the local client when possible. With `extensionKind: ["ui", "workspace"]`, the extension prefers the local host. If installed only on the SSH host, `asExternalUri` forwards the callback port and `openExternal` asks the client to open the browser. The extension does not launch a browser on the SSH host.
+**Remote SSH:** The extension declares `extensionKind: ["workspace"]` and runs on the SSH host. `vscode.env.asExternalUri` forwards the callback port and `openExternal` asks the client to open the browser. The extension does not launch a browser on the SSH host. Running on the SSH host also keeps it in the same extension host as chat model providers, so the `@remote-device-hub` participant can use the selected model.
 
 Activation, MCP startup, and manual sign-in share one pending login flow, preventing duplicate browser windows. You can cancel sign-in from the progress notification. Canceling stops the pending MCP startup; starting it again can initiate another sign-in attempt. If the browser API reports failure, choose `Copy Link` and open the link in your local browser. The `Sign In` command remains available for manual retries.
 
@@ -98,6 +98,7 @@ Press `F5` to launch the Extension Development Host. If you are not signed in, t
 
 - Credential checks target the current stateless HTTP MCP service. An existing connection is not guaranteed to pick up refreshed credentials immediately. Restart MCP if the service revokes its token.
 - Workspaces in the same window share stored credentials. Refresh coordination is scoped to the extension host.
+- The `@remote-device-hub` chat participant can only use chat models whose provider extension runs in the same extension host. `extensionKind: ["workspace"]` keeps the extension alongside model providers in remote windows; a model from a provider in another extension host fails with "The selected model ... is not available."
 
 ## Build history
 

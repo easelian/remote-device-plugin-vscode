@@ -15,7 +15,8 @@ async function until(predicate) {
   }
 }
 function harness(t, options = {}) {
-  let stored = options.token && JSON.stringify(options.token);
+  const shared = options.shared || { stored: options.token && JSON.stringify(options.token) };
+  const scope = options.scope || require('node:crypto').randomUUID();
   const commands = new Map(), listeners = new Set(), messages = [], opens = [], requests = [], logs = [];
   const relays = [], callbackUris = [], controllers = [];
   let provider, progressCount = 0, clipboard;
@@ -71,12 +72,13 @@ function harness(t, options = {}) {
     target.searchParams.set('state', uri.searchParams.get('state'));
     const res = await realFetch(target); assert.equal(res.status, 200); await res.text();
   }
-  const context = { subscriptions: [], secrets: {
-    async get() { return stored; }, async store(_key, value) { stored = value; }, async delete() { stored = undefined; },
+  const context = { globalStorageUri: { fsPath: scope }, subscriptions: [], secrets: {
+    onDidChange() { return dispose(); },
+    async get() { return shared.stored; }, async store(_key, value) { shared.stored = value; }, async delete() { shared.stored = undefined; },
   } };
   const exports = {};
   vm.runInNewContext(source, {
-    exports, require: name => name === 'vscode' ? vscode : name === './chat' ? { registerChat() {} } : require(name),
+    exports, require: name => name === 'vscode' ? vscode : name === './chat' ? { registerChat() {} } : name === './credentialLock' ? require('../out/credentialLock') : require(name),
     URL, URLSearchParams, Buffer, AbortSignal, AbortController, console,
     setTimeout, clearTimeout, setInterval, clearInterval,
     fetch: async (url, init) => {
@@ -84,6 +86,7 @@ function harness(t, options = {}) {
       if (url.endsWith('/register')) { return Response.json({ client_id: 'client' }, { status: 201 }); }
       if (url.endsWith('/token')) {
         if (init.body.includes('grant_type=refresh_token')) {
+          if (options.refreshStatus) { return Response.json({ error: 'temporarily_unavailable' }, { status: options.refreshStatus }); }
           return options.refreshOk ? Response.json(freshToken()) : Response.json({ error: 'invalid_grant' }, { status: 400 });
         }
         return Response.json(freshToken());
@@ -102,7 +105,7 @@ function harness(t, options = {}) {
     for (const relay of relays) { relay.closeAllConnections(); await new Promise(resolve => relay.close(resolve)); }
   });
   return { commands, provider, messages, opens, requests, logs, callbackUris, callback, cancel,
-    get token() { return stored && JSON.parse(stored); },
+    get token() { return shared.stored && JSON.parse(shared.stored); },
     get progressCount() { return progressCount; }, get clipboard() { return clipboard; },
   };
 }
@@ -145,7 +148,7 @@ test('MCP startup automatically signs in when unexpired token is rejected', asyn
   const h = harness(t, { token: freshToken('revoked') });
   assert.equal((await h.provider.resolveMcpServerDefinition()).headers.Authorization, 'Bearer accepted');
   assert.equal(h.opens.length, 1);
-  assert.equal(h.requests.filter(r => r.url.endsWith('/mcp')).length, 2);
+  assert.equal(h.requests.filter(r => r.url.endsWith('/mcp')).length, 3);
 });
 test('rejected credentials refresh before invoking browser', async t => {
   const h = harness(t, { token: freshToken('revoked'), refreshOk: true });
@@ -195,4 +198,36 @@ test('reload retains server-accepted credentials and explains why no browser ope
   await until(() => h.logs.some(line => line.includes('browser sign-in is not needed')));
   assert.equal(h.opens.length, 0);
   assert.equal(h.requests.filter(r => r.url.endsWith('/mcp')).length, 1);
+});
+
+test('independent extension hosts share a single browser authorization', async t => {
+  const shared = {}, scope = require('node:crypto').randomUUID();
+  const a = harness(t, { shared, scope, hold: true });
+  await until(() => a.opens.length);
+  const b = harness(t, { shared, scope, hold: true });
+  const resolving = b.provider.resolveMcpServerDefinition();
+  await a.callback(a.opens[0]);
+  assert.equal((await resolving).headers.Authorization, 'Bearer accepted');
+  assert.equal(a.opens.length + b.opens.length, 1);
+});
+test('independent hosts rotate an expired refresh token only once', async t => {
+  const shared = { stored: JSON.stringify({ ...freshToken(), _got_at: 0 }) };
+  const scope = require('node:crypto').randomUUID();
+  const a = harness(t, { shared, scope, refreshOk: true });
+  const b = harness(t, { shared, scope, refreshOk: true });
+  await Promise.all([a.provider.resolveMcpServerDefinition(), b.provider.resolveMcpServerDefinition()]);
+  assert.equal([...a.requests, ...b.requests].filter(r => r.url.endsWith('/token')).length, 1);
+  assert.equal(a.opens.length + b.opens.length, 0);
+});
+test('temporary refresh failure retains credentials without opening OAuth', async t => {
+  const token = { ...freshToken(), _got_at: 0 };
+  const h = harness(t, { token, refreshStatus: 503 });
+  assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+  assert.deepEqual(h.token, token);
+  assert.equal(h.opens.length, 0);
+});
+test('permission denial does not start a new authorization', async t => {
+  const h = harness(t, { token: freshToken(), mcpStatus: 403 });
+  assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+  assert.equal(h.opens.length, 0);
 });

@@ -2,14 +2,14 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "publisher": "xdistribute",
   "license": "UNLICENSED",
   "engines": { "vscode": "^1.105.0" },
   "categories": ["AI", "Other"],
   "keywords": ["mcp", "agent", "remote", "device"],
   "main": "./out/extension.js",
-  "extensionKind": ["ui", "workspace"],
+  "extensionKind": ["workspace"],
   "activationEvents": ["onStartupFinished", "onChatParticipant:xdistribute.remote-device-hub.chat"],
   "contributes": {
     "chatParticipants": [{

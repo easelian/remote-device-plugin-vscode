@@ -175,6 +175,11 @@ export function createChatHandler(deps: Dependencies): vscode.ChatRequestHandler
     } catch (error) {
       if (!token.isCancellationRequested) {
         const detail = error instanceof Error ? error.message : String(error);
+        if (error instanceof vscode.LanguageModelError && error.code === 'NotFound') {
+          stream.markdown('\nThe model selected for this chat is not available to this extension. ' +
+            'Select a different model for this chat and try again.');
+          return { errorDetails: { message: detail } };
+        }
         stream.markdown('\nRemote Device Hub could not complete your request.');
         return { errorDetails: { message: detail } };
       }

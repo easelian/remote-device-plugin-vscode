@@ -14,8 +14,9 @@ function setup(options = {}) {
   class ResponseTurn {}
   class Markdown {}
   let participant;
+  class LanguageModelError extends Error { constructor(message, code = '') { super(message); this.code = code; } }
   const vscode = {
-    CancellationError: class extends Error {}, LanguageModelTextPart: Text, LanguageModelToolCallPart: Call,
+    CancellationError: class extends Error {}, LanguageModelError, LanguageModelTextPart: Text, LanguageModelToolCallPart: Call,
     LanguageModelToolResultPart: Result, ChatRequestTurn: RequestTurn, ChatResponseTurn: ResponseTurn,
     ChatResponseMarkdownPart: Markdown,
     LanguageModelChatMessage: { User: content => ({ role: 'user', content }), Assistant: content => ({ role: 'assistant', content }) },
@@ -42,12 +43,13 @@ function setup(options = {}) {
   const deps = { endpoint: 'https://hub.test/mcp', ensureSignedIn: async () => options.signedIn !== false, accessToken: async () => 'secret-test' };
   let round = 0;
   const model = { async sendRequest(messages, requestOptions, cancellation) {
+    if (options.modelError) { throw options.modelError; }
     modelRequests.push({ messages: structuredClone(messages), requestOptions, cancellation });
     const parts = options.responses?.[round++] || [new Text('Done')];
     return { stream: (async function* () { yield* parts; })() };
   } };
   const stream = { markdown: value => text.push(value), progress() {} };
-  return { exports, deps, calls, text, confirmations, modelRequests, token, listeners, Call, Text, RequestTurn,
+  return { exports, deps, calls, text, confirmations, modelRequests, token, listeners, Call, Text, RequestTurn, LanguageModelError,
     get participant() { return participant; },
     async run(extra = {}, history = []) { return exports.createChatHandler(deps)({ prompt: 'List devices', model, ...extra }, { history }, stream, token); },
   };
@@ -107,6 +109,14 @@ test('HTTP rejection and malformed RPC response surface errors without replay', 
     assert.ok(result.errorDetails.message); assert.equal(h.calls.length, 1);
     assert.equal(h.listeners.size, 0);
   }
+});
+test('unavailable chat model surfaces a select-a-different-model hint', async () => {
+  const options = {}; const h = setup(options);
+  options.modelError = new h.LanguageModelError('The selected model is not available.', 'NotFound');
+  const result = await h.run();
+  assert.match(h.text.at(-1), /Select a different model for this chat and try again/);
+  assert.match(result.errorDetails.message, /not available/);
+  assert.equal(h.modelRequests.length, 0);
 });
 test('tool errors stay marked as errors in model results', async () => {
   const options = { toolError: true }; const h = setup(options);
