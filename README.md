@@ -14,11 +14,13 @@ Install the extension and reload VS Code. If you need to sign in, the extension 
 
 The extension uses the service's existing authentication endpoints. No server changes are required for this flow.
 
+Browser authorization and client registration use `https://mcp.xdistribute.site`. Token exchange uses `https://xdistribute.site:8090/token`; refresh uses `/token/refresh` on that same trusted origin. This keeps renewal traffic off the proxy route. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
+
 1. The extension runs in the workspace extension host (`extensionKind: ["workspace"]`), which on an SSH host is the remote host. This keeps it in the same extension host as language-model providers, so `@remote-device-hub` can resolve the selected chat model. It starts a temporary callback server on a random `127.0.0.1` port on its host.
 2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
 3. The extension registers an OAuth client dynamically, opens Google sign-in with PKCE, receives the authorization code, and exchanges it for tokens.
-4. Tokens are stored in `SecretStorage`. The extension refreshes them before expiration and fires `onDidChangeMcpServerDefinitions` when they change.
-5. Before MCP startup, a side-effect-free `ping` checks whether the service accepts the token. A 401 or 403 triggers a refresh attempt, followed by browser sign-in if needed. The MCP server does not start if the credential check fails.
+4. Tokens are stored in `SecretStorage`. Refresh is scheduled three minutes before the token expires, including when another window updates the credentials. Credential changes fire `onDidChangeMcpServerDefinitions`.
+5. Before MCP startup, a side-effect-free `ping` checks whether the service accepts the token. A 401 triggers a refresh attempt. Permission errors, service failures, and rejected saved credentials do not automatically open browser sign-in. The MCP server does not start if the credential check fails.
 
 A deployment test on October 12, 2026 confirmed that dynamic client registration accepted `http://127.0.0.1:<port>/callback` with HTTP 201.
 
@@ -26,15 +28,19 @@ A deployment test on October 12, 2026 confirmed that dynamic client registration
 
 The extension registers its MCP provider during activation with `lm.registerMcpServerDefinitionProvider`. VS Code controls when the MCP server starts, including on-demand startup from chat and manual startup from the MCP server list. The `chat.mcp.autostart` setting controls automatic startup; a disabled server or a server in an error state may require manual intervention. Complete any trust prompt that VS Code displays.
 
-Before starting the server, VS Code calls `resolveMcpServerDefinition`. The extension checks credentials, opens browser sign-in if needed, and returns a definition with the current Authorization header.
+Before starting the server, VS Code calls `resolveMcpServerDefinition`. The extension checks credentials, refreshes them when needed, and returns a definition with the current Authorization header.
 
-Activation also checks saved credentials with the service. If credentials are missing, or the service rejects them and refresh fails, the extension opens sign-in automatically. You do not need to run the `Sign In` command. Sending a request to `@remote-device-hub` also checks credentials; typing `@` alone does not start authentication.
+Activation also checks saved credentials with the service. A first installation opens browser sign-in automatically. A shared record prevents other windows or reloads from opening another browser after that attempt is canceled, times out, or fails. Existing credentials are renewed silently; if they cannot be renewed, use `Remote Device Hub: Sign In` to reconnect. MCP startup and chat show a `Sign In` action when saved credentials need attention. Typing `@` alone does not start authentication.
+
+Refresh tokens are single-use. New sign-ins create a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Legacy credentials retain their original refresh flow until the next explicit sign-in. If a legacy response was lost or the service has already revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
 
 **Local VS Code:** Install the VSIX, run `Developer: Reload Window`, and complete authorization in your browser if prompted.
 
 **Remote SSH:** The extension declares `extensionKind: ["workspace"]` and runs on the SSH host. `vscode.env.asExternalUri` forwards the callback port and `openExternal` asks the client to open the browser. The extension does not launch a browser on the SSH host. Running on the SSH host also keeps it in the same extension host as chat model providers, so the `@remote-device-hub` participant can use the selected model.
 
-Activation, MCP startup, and manual sign-in share one pending login flow, preventing duplicate browser windows. You can cancel sign-in from the progress notification. Canceling stops the pending MCP startup; starting it again can initiate another sign-in attempt. If the browser API reports failure, choose `Copy Link` and open the link in your local browser. The `Sign In` command remains available for manual retries.
+Activation, MCP startup, and manual sign-in share one pending login flow. A host-level lock coordinates windows on the same extension host. A canceled or timed-out login requires an explicit `Sign In` retry; queued windows do not start another browser flow. Signing out also suppresses automatic sign-in after reload. If the browser API reports failure, choose `Copy Link` and open the link in your local browser.
+
+The loopback lock coordinates windows on one host. Hosts using the same VS Code SecretStorage share the private recovery key and derive the same proof for a refresh; the server serializes the operation and returns one rotation result to each host. An old token pair alone cannot derive that proof. Keep older extension versions from running alongside this version: they do not use recovery and can replay consumed tokens.
 
 If VS Code still displays its built-in MCP OAuth prompt, check the server's source in `MCP: List Servers`. A separate entry in `mcp.json`, even with the same name, does not use this extension's sign-in flow. If the service revokes credentials for a running connection, stop and restart that server so the extension can check them again.
 
