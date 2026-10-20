@@ -130,6 +130,7 @@ export function activate(context: vscode.ExtensionContext): void {
       return false;
     },
     accessToken: async () => (await getToken(context))?.access_token,
+    log: message => log.info(message),
   });
 
   const provider: vscode.McpServerDefinitionProvider<vscode.McpHttpServerDefinition> = {

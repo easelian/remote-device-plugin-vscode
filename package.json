@@ -2,7 +2,7 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "publisher": "xdistribute",
   "license": "UNLICENSED",
   "engines": { "vscode": "^1.105.0" },
@@ -12,6 +12,37 @@
   "extensionKind": ["workspace"],
   "activationEvents": ["onStartupFinished", "onChatParticipant:xdistribute.remote-device-hub.chat"],
   "contributes": {
+    "configuration": {
+      "title": "Remote Device Hub",
+      "properties": {
+        "remoteDeviceHub.chat.executionMode": {
+          "type": "string", "enum": ["confirm", "automatic"], "default": "confirm", "scope": "machine",
+          "markdownDescription": "Execution policy for `@remote-device-hub`. Confirm asks before each non-read-only call. Automatic runs on explicitly permitted devices with explicitly permitted tools. Only User or Remote settings can grant automatic access."
+        },
+        "remoteDeviceHub.chat.automaticDevices": {
+          "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}$" },
+          "uniqueItems": true, "default": [], "scope": "machine",
+          "markdownDescription": "Exact device IDs permitted for device operations in automatic chat mode. Obtain IDs with `list_devices`. No wildcards. Global read-only discovery is always available."
+        },
+        "remoteDeviceHub.chat.automaticTools": {
+          "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}$" },
+          "uniqueItems": true, "default": [], "scope": "machine",
+          "markdownDescription": "Exact non-read-only tool names permitted without confirmation in automatic chat mode. For example: `start_process`, `write_file`, `edit_file`. Allowing `start_process` lets the agent execute arbitrary shell commands with the remote Agent account's OS permissions."
+        },
+        "remoteDeviceHub.chat.maxModelTurns": {
+          "type": "integer", "minimum": 0, "default": 0, "scope": "machine",
+          "description": "Maximum model turns per chat request. 0 allows iteration until completion, cancellation, another budget, or an error."
+        },
+        "remoteDeviceHub.chat.maxToolCalls": {
+          "type": "integer", "minimum": 0, "default": 0, "scope": "machine",
+          "description": "Maximum tool calls per chat request. 0 removes the tool call budget. Calls still require the configured execution permissions."
+        },
+        "remoteDeviceHub.chat.maxDurationMinutes": {
+          "type": "integer", "minimum": 0, "maximum": 1440, "default": 60, "scope": "machine",
+          "description": "Time budget in minutes for one chat request, including waits. 0 removes the deadline. Changing chat execution settings stops active runs."
+        }
+      }
+    },
     "chatParticipants": [{
       "id": "xdistribute.remote-device-hub.chat",
       "name": "remote-device-hub",

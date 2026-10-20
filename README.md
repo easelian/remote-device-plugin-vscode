@@ -63,13 +63,44 @@ The extension's MCP provider is available in the editor window running the exten
 Install the latest VSIX and run `Developer: Reload Window`. In Copilot Chat, type `@remote-device-hub` and select it from the suggestions. Then describe your task:
 
 - `@remote-device-hub List my authorized devices.`
-- `@remote-device-hub Check free disk space on device kylin-pc-a5704092.` Replace the example ID with one returned for your account. Shell commands require confirmation before they run.
+- `@remote-device-hub Check free disk space on device kylin-pc-a5704092.` Replace the example ID with one returned for your account. Shell commands require confirmation in the default execution mode.
 
 There is one chat entry point: `@remote-device-hub`. No slash commands are required. The gray placeholder shows examples; pressing Tab does not insert that text. An empty request displays a brief input hint if the client allows it to be sent.
 
 The chat participant shares the extension's authentication and token refresh logic and connects directly to the same RDH MCP service. You do not need to enable the server in the Agent mode tool picker first. Regular Agent mode can still use the existing MCP provider.
 
-Natural-language requests use the model selected in the chat window. That model must support tool calling. Recent text exchanges with this participant provide context for follow-up requests, while tools retrieve current device information. Writes, shell commands, and operations outside the read-only allowlist require confirmation. Declining stops the request. Network failures do not automatically replay tool calls, and canceling chat does not undo operations already sent to a device.
+Natural-language requests use the model selected in the chat window. That model must support tool calling. Recent text exchanges with this participant provide context for follow-up requests, while tools retrieve current device information. The default `confirm` execution mode asks before writes, shell commands, and operations outside the read-only allowlist. Declining stops the request. Network failures do not automatically replay tool calls, and canceling chat does not undo operations already sent to a device.
+
+### Continuous AI iteration
+
+The participant can repeat inspection, editing, builds, tests, and repairs in one request. It continues until the model finishes, you press Stop, a configured budget is reached, or an error occurs. The previous fixed limits of 12 model turns and 24 tool calls have been removed. Each request uses the model you selected in chat.
+
+For unattended work, first use `@remote-device-hub List my authorized devices` to obtain the target's exact ID. Then open **Preferences: Open User Settings (JSON)**, or **Preferences: Open Remote Settings (JSON)** in a Remote SSH window, and add:
+
+```json
+{
+  "remoteDeviceHub.chat.executionMode": "automatic",
+  "remoteDeviceHub.chat.automaticDevices": ["REPLACE_WITH_YOUR_DEVICE_ID"],
+  "remoteDeviceHub.chat.automaticTools": [
+    "start_process", "write_file", "edit_file", "make_directory",
+    "move_file", "write_process_stdin", "terminate_process",
+    "start_search", "stop_search"
+  ],
+  "remoteDeviceHub.chat.maxModelTurns": 0,
+  "remoteDeviceHub.chat.maxToolCalls": 0,
+  "remoteDeviceHub.chat.maxDurationMinutes": 60
+}
+```
+
+Replace the placeholder with an ID returned for your account, and retain only tools you intend to permit. The tool list above supports common coding tasks; a tool must also be advertised by the connected Hub. `0` removes the corresponding budget. The defaults are unlimited model turns and tool calls with a 60-minute time budget. Set `maxDurationMinutes` to `0` to remove that deadline, or use an integer up to 1440 for a bounded run.
+
+Automatic mode requires a trusted workspace. Device reads are limited to `automaticDevices`; non-read-only calls also require a name in `automaticTools`. Global read-only discovery remains available. Global mutations cannot run automatically, even if their tool name is listed. A call outside the configured scope stops with an explanation instead of waiting for a confirmation popup. Workspace `.vscode/settings.json` cannot grant these permissions or change the budgets; the settings are machine-scoped and are read from User or Remote settings. Changing chat execution settings stops active requests. Set `executionMode` back to `confirm` to restore per-call confirmation.
+
+Allowing `start_process` permits arbitrary shell commands with the remote Agent account's OS permissions. A device ID or file root is not a shell sandbox. Automatic mode removes RDH's per-call confirmation within that scope; model-provider consent, service quota, sign-in, and other VS Code prompts may still require attention.
+
+Describe the task and acceptance checks, for example: `@remote-device-hub On device <ID>, repair the failing tests in <project path>. Run the relevant checks after each fix and continue until they pass. Stop if you need a product decision.` The extension keeps the original request, recent complete tool exchanges, and bounded excerpts from earlier results within the selected model's input limit. Large outputs are explicitly marked as partial so the model can read narrower ranges. Excerpts are historical data; they do not replace checking current device state.
+
+Keep VS Code and its extension host running. Closing or reloading the window stops the loop; this version does not resume a task automatically afterward. A remote process already started may continue running. Inspect its state before starting it again. `Remote Device Hub: Show Logs` records run IDs, tool names, device IDs, outcomes, and stop reasons without logging commands, file contents, or credentials.
 
 The chat client targets RDH's stateless Streamable HTTP configuration with JSON responses; it is not a general-purpose MCP client. Tests cover simulated models, authentication responses, and MCP requests. Completion suggestions and actual model calls still need verification in the Copilot client.
 
@@ -102,6 +133,8 @@ The integration tests cover ordinary sign-out, rotation before sign-out, lost re
 |---|---|
 | `src/extension.ts` | Authentication, token management, and the MCP provider |
 | `src/chat.ts` | Chat participant, model tool calls, and the MCP HTTP client |
+| `src/chatRun.ts` | Chat execution permissions, budgets, and cancellation |
+| `src/chatContext.ts` | Bounded model context and historical tool excerpts |
 | `.vscode/launch.json` | F5 launch configuration |
 | `package.json` | Extension metadata, MCP provider, chat participant, and commands |
 
@@ -124,6 +157,7 @@ The integration tests cover ordinary sign-out, rotation before sign-out, lost re
 
 ## Build history
 
+- `remote-device-hub-0.0.14.vsix`: Added explicitly scoped automatic chat execution, configurable iteration budgets, cancellation during waits, bounded context, and run metadata logs.
 - `remote-device-hub-0.0.9.vsix`: Updated documentation, comments, UI text, model instructions, and test fixtures to American English.
 - `remote-device-hub-0.0.8.vsix`: Kept one `@remote-device-hub` entry point, removed slash commands and follow-up buttons, and added natural-language examples to the input hint.
 - `remote-device-hub-0.0.7.vsix`: Added clearer input guidance, `/help`, empty-request guidance, and suggested follow-ups. These additional controls were removed in 0.0.8.
