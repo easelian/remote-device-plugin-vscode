@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
+import { isRecord, isUnknownArray, McpTool, parseJson, readMcpTool, readRpcResult } from './boundaries';
 import { ChatContext, preview, toolResultText } from './chatContext';
 import { cancellable, ChatRun, checkAutomaticCall, readChatPolicy, READ_TOOLS, RunStopped } from './chatRun';
 
 export const CHAT_ID = 'xdistribute.remote-device-hub.chat';
 const INPUT_HINT = 'Describe what you want to do on a remote device. For example: "List my authorized devices" or "Check free disk space on device <device ID>."';
 let nextRunId = 0;
-interface Tool { name: string; description?: string; inputSchema: object }
 interface RpcResult { [key: string]: unknown }
 interface Dependencies {
   endpoint: string;
@@ -60,11 +60,7 @@ export class HubClient {
           chunks.push(value);
         }
       } finally { void reader.cancel().catch(() => {}); }
-      const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-      if (data.jsonrpc !== '2.0' || data.id !== id) { throw new Error('The MCP response ID does not match the request.'); }
-      if (data.error) { throw new Error(`MCP error ${data.error.code}: ${data.error.message}`); }
-      if (!data.result || typeof data.result !== 'object') { throw new Error('The MCP response is missing its result.'); }
-      return data.result;
+      return readRpcResult(parseJson(Buffer.concat(chunks).toString('utf8')), id);
     } finally { clearTimeout(timer); cancel.dispose(); }
   }
   async initialize(): Promise<void> {
@@ -78,22 +74,20 @@ export class HubClient {
     this.protocol = result.protocolVersion;
     await this.request('notifications/initialized');
   }
-  async listTools(): Promise<Tool[]> {
-    const tools: Tool[] = [];
+  async listTools(): Promise<McpTool[]> {
+    const tools: McpTool[] = [];
     const seen = new Set<string>();
     let cursor: string | undefined;
     for (let page = 0; page < 20; page++) {
       const result = await this.request('tools/list', cursor ? { cursor } : {});
-      if (!Array.isArray(result.tools)) { throw new Error('The MCP tool list is malformed.'); }
-      for (const tool of result.tools as Tool[]) {
-        if (!tool || typeof tool.name !== 'string' || !tool.inputSchema || typeof tool.inputSchema !== 'object') {
-          throw new Error('An MCP tool definition is malformed.');
-        }
+      if (!isUnknownArray(result.tools)) { throw new Error('The MCP tool list is malformed.'); }
+      for (const value of result.tools) {
+        const tool = readMcpTool(value);
         if (tools.some(t => t.name === tool.name)) { throw new Error('The MCP server returned duplicate tool names.'); }
         tools.push(tool);
       }
-      if (!result.nextCursor) { return tools; }
-      if (typeof result.nextCursor !== 'string' || seen.has(result.nextCursor)) { throw new Error('The MCP pagination cursor is invalid.'); }
+      if (result.nextCursor === undefined) { return tools; }
+      if (typeof result.nextCursor !== 'string' || !result.nextCursor || seen.has(result.nextCursor)) { throw new Error('The MCP pagination cursor is invalid.'); }
       cursor = result.nextCursor; seen.add(cursor);
     }
     throw new Error('The MCP tool list exceeds the page limit.');
@@ -138,7 +132,7 @@ export function createChatHandler(deps: Dependencies, shutdown?: vscode.Cancella
       const hub = new HubClient(deps, active.token);
       await hub.initialize();
       const tools = await hub.listTools();
-      const allowed = new Set(tools.map(t => t.name));
+      const available = new Map(tools.map(tool => [tool.name, tool]));
       const modelTools = tools.map(t => ({ name: t.name, description: t.description ?? t.name, inputSchema: t.inputSchema }));
       const toolTokens = await cancellable(() => request.model.countTokens(JSON.stringify(modelTools), active.token), active.token);
       if (!Number.isFinite(toolTokens) || toolTokens < 0) { throw new Error('The selected model returned an invalid tool token count.'); }
@@ -202,11 +196,12 @@ export function createChatHandler(deps: Dependencies, shutdown?: vscode.Cancella
         const notes: object[] = [];
         for (const call of toolCalls) {
           active.checkCallBudget();
-          if (!allowed.has(call.name)) { throw new Error(`The model requested a tool that was not provided: ${call.name}`); }
-          if (!call.input || typeof call.input !== 'object' || Array.isArray(call.input)) {
+          const tool = available.get(call.name);
+          if (!tool) { throw new Error(`The model requested a tool that was not provided: ${call.name}`); }
+          if (!isRecord(call.input)) {
             throw new Error(`The model supplied invalid arguments for ${call.name}.`);
           }
-          checkAutomaticCall(policy, call.name, call.input, tools.find(tool => tool.name === call.name)!.inputSchema);
+          checkAutomaticCall(policy, call.name, call.input, tool.inputSchema);
           if (policy.executionMode === 'confirm' && !READ_TOOLS.has(call.name)) {
             const choice = await cancellable(() => vscode.window.showWarningMessage(`Allow Remote Device Hub to run ${call.name}?`, {
               modal: true, detail: JSON.stringify(call.input, null, 2),
@@ -216,7 +211,7 @@ export function createChatHandler(deps: Dependencies, shutdown?: vscode.Cancella
           active.check();
           stream.progress(`Running ${call.name}…`);
           active.calls++;
-          const device = (call.input as { device_id?: unknown }).device_id;
+          const device = call.input.device_id;
           const label = (value: unknown): string => String(value ?? '-').replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 128);
           audit(`tool=${label(call.name)} device=${label(device)} call=${active.calls} dispatched`);
           let result: RpcResult;

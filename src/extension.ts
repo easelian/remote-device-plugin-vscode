@@ -20,6 +20,7 @@ import * as crypto from 'crypto';
 import * as http from 'http';
 import { withCredentialLock } from './credentialLock';
 import { registerChat } from './chat';
+import { isRecord, isTokenSet, parseJson, readClientId, readTokenResponse, TokenSet } from './boundaries';
 
 // ================= Deployment settings =================
 const AUTH_BASE = 'https://mcp.xdistribute.site';       // Browser authorization and client registration
@@ -40,19 +41,6 @@ const REFRESH_RETRY_MS = 60 * 1000;
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;      // Maximum time allowed for sign-in
 const REQUEST_TIMEOUT_MS = 30 * 1000;
 
-interface TokenSet {
-  access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-  _got_at?: number;   // Time received, in Unix epoch seconds
-  client_id: string;
-  // Written before refresh is sent. A surviving marker means the response may
-  // have been lost; replaying that refresh token can revoke the entire grant.
-  _refresh_state?: 'pending' | 'rejected';
-  _refresh_request_id?: string;
-  _refresh_recovery?: true;
-}
-
 class CredentialError extends Error {
   constructor(readonly reason: string, message: string) { super(message); }
 }
@@ -69,7 +57,9 @@ let pendingTokenSave: { previousRefreshToken: string; next: TokenSet } | undefin
 export function activate(context: vscode.ExtensionContext): void {
   changeEmitter = new vscode.EventEmitter<void>();
   log = vscode.window.createOutputChannel('Remote Device Hub', { log: true });
-  log.info(`Remote Device Hub ${context.extension?.packageJSON?.version ?? 'development'} activated`);
+  const manifest: unknown = context.extension?.packageJSON;
+  const version = isRecord(manifest) && typeof manifest.version === 'string' ? manifest.version : 'development';
+  log.info(`Remote Device Hub ${version} activated`);
 
   context.subscriptions.push(
     log,
@@ -225,19 +215,11 @@ async function getToken(context: vscode.ExtensionContext): Promise<TokenSet | un
 async function readStoredToken(context: vscode.ExtensionContext): Promise<TokenSet | undefined> {
   const raw = await context.secrets.get(SECRET_KEY);
   if (!raw) { return undefined; }
-  let t: TokenSet;
-  try { t = JSON.parse(raw) as TokenSet; } catch {
+  let t: unknown;
+  try { t = parseJson(raw); } catch {
     throw new CredentialError('invalid_storage', 'Saved credentials could not be read. Use Remote Device Hub: Sign In to reconnect.');
   }
-  if (!t || typeof t.access_token !== 'string' || !t.access_token
-      || typeof t.client_id !== 'string' || !t.client_id
-      || (t.refresh_token !== undefined && typeof t.refresh_token !== 'string')
-      || (t._got_at !== undefined && (!Number.isFinite(t._got_at) || t._got_at < 0))
-      || (t.expires_in !== undefined && (!Number.isFinite(t.expires_in) || t.expires_in <= 0))
-      || (t._refresh_state !== undefined && !['pending', 'rejected'].includes(t._refresh_state))
-      || (t._refresh_recovery !== undefined && t._refresh_recovery !== true)
-      || (t._refresh_request_id !== undefined && (typeof t._refresh_request_id !== 'string'
-          || !/^[A-Za-z0-9_-]{43}$/.test(t._refresh_request_id) || t._refresh_state !== 'pending'))) {
+  if (!isTokenSet(t)) {
     throw new CredentialError('invalid_storage', 'Saved credentials have an invalid format. Use Remote Device Hub: Sign In to reconnect.');
   }
   return t;
@@ -375,8 +357,9 @@ async function doRefresh(context: vscode.ExtensionContext, t: TokenSet): Promise
     const responseRequestId = resp.headers.get('x-request-id');
     log.info(`token refresh: HTTP ${resp.status}${responseRequestId && /^[A-Za-z0-9_-]{1,128}$/.test(responseRequestId) ? `; request=${responseRequestId}` : ''}`);
     if (!resp.ok) {
-      const error = await resp.json().catch(() => ({})) as { error?: string };
-      if (resp.status === 400 && error.error === 'invalid_grant') {
+      const error: unknown = await resp.json().catch(() => undefined);
+      const errorCode = isRecord(error) && typeof error.error === 'string' ? error.error : undefined;
+      if (resp.status === 400 && errorCode === 'invalid_grant') {
         const current = await readStoredToken(context);
         if (!current || current.client_id !== t.client_id || current.refresh_token !== t.refresh_token) { return current; }
         const rejected: TokenSet = { ...t, _refresh_state: 'rejected' };
@@ -388,7 +371,7 @@ async function doRefresh(context: vscode.ExtensionContext, t: TokenSet): Promise
       // follow a committed rotation, even if it has a JSON error body.
       if ((resp.status === 400 || resp.status === 401)
           && ['invalid_client', 'unauthorized_client', 'invalid_request', 'invalid_scope',
-              'invalid_target', 'unsupported_grant_type'].includes(error.error ?? '')) {
+              'invalid_target', 'unsupported_grant_type'].includes(errorCode ?? '')) {
         const restored = { ...t };
         delete restored._refresh_state;
         delete restored._refresh_request_id;
@@ -396,8 +379,7 @@ async function doRefresh(context: vscode.ExtensionContext, t: TokenSet): Promise
       }
       throw new Error(`token refresh HTTP ${resp.status}; credentials retained`);
     }
-    const data = await resp.json() as Partial<TokenSet>;
-    if (!data.access_token) { throw new Error('token response has no access_token'); }
+    const data = readTokenResponse(await resp.json(), t.client_id);
     const next: TokenSet = {
       ...t,
       ...data,
@@ -443,7 +425,7 @@ function signIn(context: vscode.ExtensionContext, explicit = false): Promise<voi
             log.info('automatic sign-in suppressed: a previous attempt or sign-out is recorded; use Sign In to retry');
           }, controller.signal);
         } catch (e) {
-          if (controller.signal.aborted && controller.signal.reason?.name === 'AbortError') {
+          if (controller.signal.aborted && isAbortError(controller.signal.reason)) {
             log.info('sign-in wait cancelled');
             return;
           }
@@ -519,8 +501,7 @@ async function runSignIn(
         if (reg.status !== 200 && reg.status !== 201) {
           throw new Error(`register HTTP ${reg.status}: ${(await reg.text()).slice(0, 200)}`);
         }
-        const { client_id: clientId } = await reg.json() as { client_id: string };
-        if (!clientId) { throw new Error('registration response has no client_id'); }
+        const clientId = readClientId(await reg.json());
 
         // 2) PKCE + state
         const verifier = base64url(crypto.randomBytes(48));
@@ -575,8 +556,7 @@ async function runSignIn(
           body: body.toString(),
         });
         if (!resp.ok) { throw new Error(`token HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`); }
-        const tok = await resp.json() as TokenSet;
-        if (!tok.access_token) { throw new Error('token response has no access_token'); }
+        const tok: TokenSet = { ...readTokenResponse(await resp.json(), clientId), client_id: clientId };
         signal.throwIfAborted();
         tok.client_id = clientId;
         tok._got_at = Date.now() / 1000;
@@ -592,7 +572,7 @@ async function runSignIn(
       }
     }, signal);
   } catch (e) {
-    if (signal.aborted && signal.reason?.name === 'AbortError') {
+    if (signal.aborted && isAbortError(signal.reason)) {
       log.info('sign-in cancelled');
       return;
     }
@@ -616,8 +596,8 @@ async function signOut(context: vscode.ExtensionContext): Promise<void> {
     try {
       const raw = await context.secrets.get(SECRET_KEY);
       if (raw) {
-        const stored = JSON.parse(raw) as Partial<TokenSet> | null;
-        if (!stored || typeof stored.client_id !== 'string' || !stored.client_id) {
+        const stored = parseJson(raw);
+        if (!isRecord(stored) || typeof stored.client_id !== 'string' || !stored.client_id) {
           throw new Error('Saved credentials have no OAuth client');
         }
         clientId = stored.client_id;
@@ -639,7 +619,8 @@ async function signOut(context: vscode.ExtensionContext): Promise<void> {
       const latest = await context.secrets.get(SECRET_KEY);
       let replaced = false;
       try {
-        const latestClient = latest && JSON.parse(latest)?.client_id;
+        const latestValue = latest ? parseJson(latest) : undefined;
+        const latestClient = isRecord(latestValue) ? latestValue.client_id : undefined;
         replaced = Boolean(typeof latestClient === 'string' && latestClient && latestClient !== clientId);
       } catch { /* Malformed credentials still need local cleanup. */ }
       if (!replaced) { await context.secrets.delete(SECRET_KEY); }
@@ -705,10 +686,10 @@ function offerSignIn(context: vscode.ExtensionContext, reason: string): void {
 // ---------------------------------------------------------------- Temporary callback server
 
 interface CallbackResult {
-  code?: string;
-  state?: string;
-  error?: string;
-  errorDescription?: string;
+  code?: string | undefined;
+  state?: string | undefined;
+  error?: string | undefined;
+  errorDescription?: string | undefined;
 }
 
 function startCallbackServer(): Promise<{
@@ -792,4 +773,8 @@ function base64url(buf: Buffer): string {
 function msg(e: unknown): string {
   if (e instanceof CredentialError) { return `${e.reason}: ${e.message}`; }
   return e instanceof Error ? e.message : String(e);
+}
+
+function isAbortError(value: unknown): boolean {
+  return isRecord(value) && value.name === 'AbortError';
 }

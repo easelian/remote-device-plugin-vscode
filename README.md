@@ -115,13 +115,15 @@ npm run package:vsix
 
 Press `F5` to launch the Extension Development Host. If you are not signed in, the browser authorization page should open automatically. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
 
+TypeScript enables `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes`. JSON, saved credentials, OAuth responses, and MCP messages enter through `src/boundaries.ts` as `unknown` and are checked before use. MCP schema checks cover the fields consumed by the extension; they are not a full JSON Schema validator.
+
 With the Hub's development dependencies installed, also verify sign-out against a disposable local Hub using the compiled extension:
 
 ```sh
 RDH_SERVER_ROOT=/path/to/remote-device-server
 PYTHONDONTWRITEBYTECODE=1 "$RDH_SERVER_ROOT/.venv/bin/python" -m pytest \
   -q -p no:cacheprovider -c "$RDH_SERVER_ROOT/pyproject.toml" \
-  -o "pythonpath=$RDH_SERVER_ROOT/src $RDH_SERVER_ROOT $RDH_SERVER_ROOT/tests" \
+  -o "pythonpath=$RDH_SERVER_ROOT/components/protocol/src $RDH_SERVER_ROOT/src $RDH_SERVER_ROOT $RDH_SERVER_ROOT/tests" \
   test/server/test_signout.py
 ```
 
@@ -132,6 +134,7 @@ The integration tests cover ordinary sign-out, rotation before sign-out, lost re
 | File | Purpose |
 |---|---|
 | `src/extension.ts` | Authentication, token management, and the MCP provider |
+| `src/boundaries.ts` | Validation for saved credentials, OAuth responses, and MCP messages |
 | `src/chat.ts` | Chat participant, model tool calls, and the MCP HTTP client |
 | `src/chatRun.ts` | Chat execution permissions, budgets, and cancellation |
 | `src/chatContext.ts` | Bounded model context and historical tool excerpts |

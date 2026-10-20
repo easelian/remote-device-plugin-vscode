@@ -491,3 +491,59 @@ test('an indeterminate mutation response stops with an unconfirmed outcome and n
   assert.equal(h.modelRequests.length, 1);
   assert.ok(h.logs.some(line => /outcome=unconfirmed/.test(line))); assertClean(h);
 });
+
+for (const [label, payload] of Object.entries({
+  null: null,
+  array: [],
+  arrayResult: { jsonrpc: '2.0', id: 1, result: [] },
+  errorWithResult: { jsonrpc: '2.0', id: 1, error: { code: -1, message: 'error' }, result: {} },
+  nullError: { jsonrpc: '2.0', id: 1, error: null },
+  stringErrorCode: { jsonrpc: '2.0', id: 1, error: { code: '-1', message: 'error' } },
+  objectErrorMessage: { jsonrpc: '2.0', id: 1, error: { code: -1, message: {} } },
+})) {
+  test(`malformed RPC envelope (${label}) stops before model use without retry`, async () => {
+    const h = setup({ onFetch: async () => Response.json(payload) });
+    const result = await h.run();
+    assert.ok(result.errorDetails.message);
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.modelRequests.length, 0);
+    assertClean(h);
+  });
+}
+
+for (const [label, tool] of Object.entries({
+  emptyName: { name: '', inputSchema: { type: 'object' } },
+  numericDescription: { name: 'read_file', description: 7, inputSchema: { type: 'object' } },
+  arraySchema: { name: 'read_file', inputSchema: [] },
+  nonObjectSchema: { name: 'read_file', inputSchema: { type: 'string' } },
+  arrayProperties: { name: 'read_file', inputSchema: { type: 'object', properties: [] } },
+  numericPropertySchema: { name: 'read_file', inputSchema: { type: 'object', properties: { device_id: 1 } } },
+  numericRequired: { name: 'read_file', inputSchema: { type: 'object', required: [3] } },
+})) {
+  test(`malformed tool definition (${label}) never reaches the model`, async () => {
+    const h = setup({ tools: [tool] });
+    const result = await h.run();
+    assert.match(result.errorDetails.message, /tool definition is malformed/);
+    assert.equal(h.modelRequests.length, 0);
+    assert.equal(h.calls.filter(call => call.method === 'tools/call').length, 0);
+    assertClean(h);
+  });
+}
+
+test('false pagination cursor is rejected instead of silently truncating tools', async () => {
+  const h = setup({ onFetch: async body => body.method === 'tools/list'
+    ? Response.json({ jsonrpc: '2.0', id: body.id, result: { tools: [], nextCursor: false } }) : undefined });
+  const result = await h.run();
+  assert.match(result.errorDetails.message, /pagination cursor is invalid/);
+  assert.equal(h.modelRequests.length, 0);
+  assertClean(h);
+});
+
+test('valid RPC errors retain the server code and message', async () => {
+  const h = setup({ onFetch: async body => Response.json({ jsonrpc: '2.0', id: body.id,
+    error: { code: -32601, message: 'Method not found', data: { reason: 'unsupported' } } }) });
+  const result = await h.run();
+  assert.match(result.errorDetails.message, /MCP error -32601: Method not found/);
+  assert.equal(h.calls.length, 1);
+  assertClean(h);
+});

@@ -639,3 +639,82 @@ test('a delayed refresh response preserves a newer credential record', async t =
   assert.equal(h.token.client_id, 'new-client');
   assert.equal(h.token.refresh_token, 'newest-refresh');
 });
+
+for (const [label, value] of Object.entries({
+  null: null,
+  array: [],
+  numericAccessToken: { ...freshToken(), access_token: 12 },
+  emptyRefreshToken: { ...freshToken(), refresh_token: '' },
+  stringExpiry: { ...freshToken(), expires_in: '3600' },
+  invalidRecovery: { ...freshToken(), _refresh_recovery: 'true' },
+  invalidRequestId: { ...freshToken(), _refresh_state: 'pending', _refresh_request_id: 'short' },
+  requestIdWithoutPending: { ...freshToken(), _refresh_request_id: 'a'.repeat(43) },
+})) {
+  test(`malformed saved credentials (${label}) block use without clearing or replaying them`, async t => {
+    const stored = JSON.stringify(value);
+    const h = harness(t, { shared: { stored } });
+    assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+    assert.equal(h.shared.stored, stored);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.opens.length, 0);
+    assert.ok(h.logs.some(line => line.includes('invalid_storage')));
+  });
+}
+
+for (const [label, response] of Object.entries({
+  null: null,
+  numericToken: { access_token: 42 },
+  invalidRefresh: { access_token: 'accepted', refresh_token: {} },
+  invalidExpiry: { access_token: 'accepted', expires_in: '3600' },
+  wrongClient: { access_token: 'accepted', client_id: 'different-client' },
+})) {
+  test(`malformed refresh response (${label}) retains pending state and is not replayed`, async t => {
+    const token = { ...freshToken(), _got_at: 0 };
+    const h = harness(t, { token, onRefresh: async () => Response.json(response) });
+    assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+    assert.deepEqual(h.token, { ...token, _refresh_state: 'pending' });
+    assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+    assert.equal(h.requests.filter(r => r.url.endsWith('/token')).length, 1);
+    assert.equal(h.opens.length, 0);
+  });
+}
+
+test('refresh responses cannot replace local recovery metadata or timestamps', async t => {
+  const h = harness(t, { token: { ...freshToken(), _got_at: 0 }, recovery: true,
+    onRefresh: async () => Response.json({ access_token: 'accepted', refresh_token: 'rotated',
+      expires_in: 7200, _got_at: 1, _refresh_state: 'rejected', _refresh_request_id: 'forged', _refresh_recovery: false }),
+  });
+  assert.equal((await h.provider.resolveMcpServerDefinition()).headers.Authorization, 'Bearer accepted');
+  assert.equal(h.token._refresh_state, undefined);
+  assert.equal(h.token._refresh_request_id, undefined);
+  assert.equal(h.token._refresh_recovery, true);
+  assert.ok(h.token._got_at > 1);
+  assert.equal(h.token.refresh_token, 'rotated');
+});
+
+test('a malformed OAuth error body leaves refresh outcome pending', async t => {
+  const h = harness(t, { token: { ...freshToken(), _got_at: 0 },
+    onRefresh: async () => Response.json(null, { status: 400 }),
+  });
+  assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+  assert.equal(h.token._refresh_state, 'pending');
+  assert.ok(h.logs.some(line => line.includes('token refresh HTTP 400')));
+  assert.equal(h.opens.length, 0);
+});
+
+test('invalid client registration is rejected before opening the browser', async t => {
+  const h = harness(t, { transport: async () => Response.json({ client_id: 123 }, { status: 201 }) });
+  await until(() => h.messages.some(message => message.includes('no valid client_id')));
+  assert.equal(h.opens.length, 0);
+  assert.equal(h.token, undefined);
+});
+
+test('invalid authorization-code token response is never persisted', async t => {
+  const h = harness(t, { transport: async url => url.endsWith('/register')
+    ? Response.json({ client_id: 'client' }, { status: 201 })
+    : Response.json({ access_token: ['invalid'] }),
+  });
+  await until(() => h.messages.some(message => message.includes('token response has an invalid format')));
+  assert.equal(h.token, undefined);
+  assert.equal(h.shared.extraSecrets.size, 0);
+});

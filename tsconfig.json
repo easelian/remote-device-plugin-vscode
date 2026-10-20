@@ -5,9 +5,16 @@
     "lib": ["ES2022"],
     "outDir": "out",
     "rootDir": "src",
-    "strict": true,
     "sourceMap": true,
-    "skipLibCheck": true
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noEmitOnError": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src"],
   "exclude": ["node_modules", "out"]

@@ -105,7 +105,7 @@ function harness(t, options = {}) {
   } };
   const exports = {};
   vm.runInNewContext(source, {
-    exports, require: name => name === 'vscode' ? vscode : name === './chat' ? { registerChat(_context, deps) { chatDeps = deps; } } : name === './credentialLock' ? require('../../out/credentialLock') : require(name),
+    exports, require: name => name === 'vscode' ? vscode : name === './chat' ? { registerChat(_context, deps) { chatDeps = deps; } } : name === './boundaries' ? require('../../out/boundaries') : name === './credentialLock' ? require('../../out/credentialLock') : require(name),
     URL, URLSearchParams, Buffer, AbortSignal, AbortController, console, Date: ClockDate,
     setTimeout: clock ? (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, at: clock.now + delay }); return id; } : setTimeout,
     clearTimeout: clock ? id => timers.delete(id) : clearTimeout,

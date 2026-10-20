@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { isRecord, isUnknownArray } from './boundaries';
 
 export const CHAT_SETTINGS = 'remoteDeviceHub.chat';
 export const READ_TOOLS = new Set(['list_devices', 'device_info', 'list_directory', 'read_file',
@@ -25,7 +26,7 @@ export function readChatPolicy(): ChatPolicy {
   // Machine-scoped settings live in User/Remote settings. Ignore workspace values
   // explicitly as well, including settings left behind by older versions.
   const read = (name: string, fallback: unknown): unknown => {
-    const value = config.inspect(name);
+    const value = config.inspect<unknown>(name);
     return value?.globalValue ?? value?.defaultValue ?? fallback;
   };
   const executionMode = read('executionMode', 'confirm');
@@ -34,7 +35,7 @@ export function readChatPolicy(): ChatPolicy {
   }
   const list = (name: string): string[] => {
     const value = read(name, []);
-    if (!Array.isArray(value) || !value.every(v => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(v))) {
+    if (!isUnknownArray(value) || !value.every((v): v is string => typeof v === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(v))) {
       throw new RunStopped('configuration', `${CHAT_SETTINGS}.${name} must contain exact names or IDs, without wildcards.`);
     }
     return [...new Set(value)];
@@ -57,11 +58,11 @@ export function checkAutomaticCall(policy: ChatPolicy, name: string, input: obje
     throw new RunStopped('permission', 'Automatic execution requires a trusted workspace.');
   }
   if (GLOBAL_READ_TOOLS.has(name)) { return; }
-  const definition = schema as { properties?: { device_id?: unknown }; required?: unknown };
-  if (!definition.properties?.device_id || !Array.isArray(definition.required) || !definition.required.includes('device_id')) {
+  if (!isRecord(schema) || !isRecord(schema.properties) || !schema.properties.device_id
+    || !isUnknownArray(schema.required) || !schema.required.includes('device_id')) {
     throw new RunStopped('permission', `Tool ${name} does not declare a required device_id. Automatic mode only permits device-scoped operations and global read-only discovery.`);
   }
-  const device = (input as { device_id?: unknown }).device_id;
+  const device = isRecord(input) ? input.device_id : undefined;
   if (typeof device !== 'string' || !policy.automaticDevices.includes(device)) {
     throw new RunStopped('permission', `Tool ${name} requires a device ID listed in ${CHAT_SETTINGS}.automaticDevices. No call was sent.`);
   }
@@ -76,18 +77,18 @@ export function cancellable<T>(start: () => Thenable<T>, token: vscode.Cancellat
   return new Promise<T>((resolve, reject) => {
     let finished = false;
     let subscription: vscode.Disposable | undefined;
-    const finish = (value: T | undefined, error?: unknown, failed = false): void => {
+    const finish = (outcome: { ok: true; value: T } | { ok: false; error: unknown }): void => {
       if (finished) { return; }
       finished = true;
       subscription?.dispose();
-      if (failed) { reject(error); } else { resolve(value as T); }
+      if (outcome.ok) { resolve(outcome.value); } else { reject(outcome.error); }
     };
-    const cancel = (): void => finish(undefined, new vscode.CancellationError(), true);
+    const cancel = (): void => finish({ ok: false, error: new vscode.CancellationError() });
     if (token.isCancellationRequested) { cancel(); return; }
     subscription = token.onCancellationRequested(cancel);
     if (finished || token.isCancellationRequested) { subscription.dispose(); cancel(); return; }
-    try { Promise.resolve(start()).then(value => finish(value), error => finish(undefined, error, true)); }
-    catch (error) { finish(undefined, error, true); }
+    try { Promise.resolve(start()).then(value => finish({ ok: true, value }), error => finish({ ok: false, error })); }
+    catch (error) { finish({ ok: false, error }); }
   });
 }
 
