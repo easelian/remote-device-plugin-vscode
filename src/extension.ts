@@ -26,6 +26,7 @@ const AUTH_BASE = 'https://mcp.xdistribute.site';       // Browser authorization
 const MCP_URI = 'https://xdistribute.site:8090/mcp';    // MCP endpoint; connects directly to the origin
 const TOKEN_URI = new URL('/token', MCP_URI).toString(); // The same trusted Hub, without the proxy hop
 const REFRESH_URI = new URL('/token/refresh', MCP_URI).toString();
+const REVOKE_URI = new URL('/revoke', MCP_URI).toString();
 const RESOURCE = 'https://mcp.xdistribute.site/mcp';
 const SCOPE = 'devices:control';
 
@@ -606,21 +607,69 @@ async function runSignIn(
 async function signOut(context: vscode.ExtensionContext): Promise<void> {
   signInAbort?.abort();
   await signInInflight?.catch(e => log.debug(`previous sign-in ended: ${msg(e)}`));
+  let revocationFailed = false;
   await withCredentialLock(context.globalStorageUri.fsPath, async () => {
     await context.secrets.store(AUTH_STATE_KEY, JSON.stringify({ signed_out_at: Date.now() }));
-    const raw = await context.secrets.get(SECRET_KEY);
-    await context.secrets.delete(SECRET_KEY);
+    let clientId: string | undefined;
+    let revocation: { token: string; token_type_hint: string } | undefined;
     try {
-      const clientId = raw && JSON.parse(raw)?.client_id;
-      if (typeof clientId === 'string') { await context.secrets.delete(REFRESH_KEY_PREFIX + clientId); }
-    } catch (e) {
-      log.debug(`recovery key cleanup deferred: ${msg(e)}`);
+      const raw = await context.secrets.get(SECRET_KEY);
+      if (raw) {
+        const stored = JSON.parse(raw) as Partial<TokenSet> | null;
+        if (!stored || typeof stored.client_id !== 'string' || !stored.client_id) {
+          throw new Error('Saved credentials have no OAuth client');
+        }
+        clientId = stored.client_id;
+        // Revoke directly, including an expired or pending refresh. Refreshing
+        // first could rotate the very credentials that sign-out must revoke.
+        const hasRefresh = typeof stored.refresh_token === 'string' && Boolean(stored.refresh_token);
+        const token = hasRefresh ? stored.refresh_token : stored.access_token;
+        if (typeof token !== 'string' || !token) { throw new Error('No saved token to revoke'); }
+        revocation = { token, token_type_hint: hasRefresh ? 'refresh_token' : 'access_token' };
+      }
+    } catch {
+      revocationFailed = true;
+      // Errors and response bodies can contain credentials. Keep logs generic.
+      log.warn('server authorization revocation was not confirmed');
+    } finally {
+      pendingTokenSave = undefined;
+      // Persist local sign-out before waiting for the network, so closing VS
+      // Code during a slow request cannot restore this account on the next run.
+      const latest = await context.secrets.get(SECRET_KEY);
+      let replaced = false;
+      try {
+        const latestClient = latest && JSON.parse(latest)?.client_id;
+        replaced = Boolean(typeof latestClient === 'string' && latestClient && latestClient !== clientId);
+      } catch { /* Malformed credentials still need local cleanup. */ }
+      if (!replaced) { await context.secrets.delete(SECRET_KEY); }
+      if (clientId) { await context.secrets.delete(REFRESH_KEY_PREFIX + clientId); }
+      if (replaced) { log.info('sign-out preserved a newer sign-in from another host'); }
     }
-    pendingTokenSave = undefined;
+    if (clientId && revocation) {
+      try {
+        const response = await fetch(REVOKE_URI, {
+          method: 'POST',
+          redirect: 'error',
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ client_id: clientId, ...revocation }).toString(),
+        });
+        log.info(`token revocation: HTTP ${response.status}`);
+        await response.body?.cancel();
+        if (response.status !== 200) { throw new Error('Revocation was not acknowledged'); }
+      } catch {
+        revocationFailed = true;
+        log.warn('server authorization revocation was not confirmed');
+      }
+    }
   });
-  log.info('signed out; MCP server will request sign-in again on next start');
+  log.info(`signed out; ${revocationFailed ? 'server revocation unconfirmed' : 'server revocation complete or no saved credentials'}`);
   changeEmitter.fire();
-  vscode.window.showInformationMessage('Remote Device Hub: signed out');
+  if (revocationFailed) {
+    void vscode.window.showWarningMessage("Remote Device Hub: signed out locally, but server revocation could not be confirmed. Revoke this connection in the Hub's account settings if it may have been compromised.");
+  } else {
+    void vscode.window.showInformationMessage('Remote Device Hub: signed out');
+  }
 }
 
 async function showStatus(context: vscode.ExtensionContext): Promise<void> {

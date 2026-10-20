@@ -113,6 +113,10 @@ function harness(t, options = {}) {
       requests.push({ url, init });
       if (options.transport) { return options.transport(url, init); }
       if (url.endsWith('/register')) { return Response.json({ client_id: 'client' }, { status: 201 }); }
+      if (url.endsWith('/revoke')) {
+        if (options.onRevoke) { return options.onRevoke(url, init); }
+        return new Response(null, { status: options.revokeStatus || 200 });
+      }
       if (url.endsWith('/token/refresh')) {
         if (!options.recovery) { return Response.json({ error: 'not_found' }, { status: 404 }); }
         if (options.onRefresh) { return options.onRefresh(url, init); }

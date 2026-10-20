@@ -12,7 +12,7 @@ Install the extension and reload VS Code. If you need to sign in, the extension 
 
 ## Authentication
 
-The extension uses the service's existing authentication endpoints. No server changes are required for this flow.
+Standard sign-in, legacy refresh, and sign-out use the service's existing authentication endpoints. Recovery after a lost refresh response requires a Hub version that supports `/token/refresh`.
 
 Browser authorization and client registration use `https://mcp.xdistribute.site`. Token exchange uses `https://xdistribute.site:8090/token`; refresh uses `/token/refresh` on that same trusted origin. This keeps renewal traffic off the proxy route. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
 
@@ -39,6 +39,10 @@ Refresh tokens are single-use. New sign-ins create a client recovery key in a se
 **Remote SSH:** The extension declares `extensionKind: ["workspace"]` and runs on the SSH host. `vscode.env.asExternalUri` forwards the callback port and `openExternal` asks the client to open the browser. The extension does not launch a browser on the SSH host. Running on the SSH host also keeps it in the same extension host as chat model providers, so the `@remote-device-hub` participant can use the selected model.
 
 Activation, MCP startup, and manual sign-in share one pending login flow. A host-level lock coordinates windows on the same extension host. A canceled or timed-out login requires an explicit `Sign In` retry; queued windows do not start another browser flow. Signing out also suppresses automatic sign-in after reload. If the browser API reports failure, choose `Copy Link` and open the link in your local browser.
+
+`Remote Device Hub: Sign Out` records local sign-out, removes local tokens and the private recovery key, and asks the trusted Hub's `/revoke` endpoint to revoke the saved authorization. Local cleanup happens before waiting for the response, so closing VS Code during a slow request cannot restore the old sign-in. Sign-out shares the credential lock with refresh, so it revokes the latest saved credentials without refreshing them first. If the server cannot acknowledge revocation, a warning explains that server revocation is unconfirmed. Use the Hub's account settings to revoke the connection if credentials may have been compromised. A newer account signed in by another host while revocation is in flight is preserved.
+
+Refresh is initiated by the extension, not pushed by the server. While the extension host is active, its timer refreshes credentials without chat activity. When VS Code is closed, refresh stops; the next activation can use a valid refresh token even if the one-hour access token has expired. The current Hub gives refresh tokens a 30-day lifetime and also expires the authorization grant 30 days after initial sign-in. Refresh does not extend that grant deadline. The recovery cache's separate 24-hour limit only applies to retrieving the result of an interrupted rotation.
 
 The loopback lock coordinates windows on one host. Hosts using the same VS Code SecretStorage share the private recovery key and derive the same proof for a refresh; the server serializes the operation and returns one rotation result to each host. An old token pair alone cannot derive that proof. Keep older extension versions from running alongside this version: they do not use recovery and can replay consumed tokens.
 
@@ -79,6 +83,18 @@ npm run package:vsix
 ```
 
 Press `F5` to launch the Extension Development Host. If you are not signed in, the browser authorization page should open automatically. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
+
+With the Hub's development dependencies installed, also verify sign-out against a disposable local Hub using the compiled extension:
+
+```sh
+RDH_SERVER_ROOT=/path/to/remote-device-server
+PYTHONDONTWRITEBYTECODE=1 "$RDH_SERVER_ROOT/.venv/bin/python" -m pytest \
+  -q -p no:cacheprovider -c "$RDH_SERVER_ROOT/pyproject.toml" \
+  -o "pythonpath=$RDH_SERVER_ROOT/src $RDH_SERVER_ROOT $RDH_SERVER_ROOT/tests" \
+  test/server/test_signout.py
+```
+
+The integration tests cover ordinary sign-out, rotation before sign-out, lost refresh responses, and lost revocation responses. They check that the entire authorization is revoked, cached recovery cannot restore it, and other connections remain valid.
 
 ## Project layout
 

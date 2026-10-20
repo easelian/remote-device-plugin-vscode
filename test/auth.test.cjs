@@ -462,6 +462,157 @@ test('sign-out removes the private recovery key created by sign-in', async t => 
   assert.equal(h.token, undefined);
 });
 
+test('sign-out clears local secrets and revokes the saved refresh grant', async t => {
+  const token = freshToken();
+  const h = harness(t, { token, recovery: true, onRevoke: async (url, init) => {
+    assert.equal(h.token, undefined);
+    assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.' + token.client_id), false);
+    assert.equal(url, 'https://xdistribute.site:8090/revoke');
+    assert.equal(init.method, 'POST');
+    assert.equal(init.redirect, 'error');
+    assert.ok(init.signal);
+    assert.equal(init.headers['Content-Type'], 'application/x-www-form-urlencoded');
+    assert.deepEqual(Object.fromEntries(new URLSearchParams(init.body)), {
+      client_id: token.client_id, token: token.refresh_token, token_type_hint: 'refresh_token',
+    });
+    return new Response(null, { status: 200 });
+  } });
+  await h.provider.resolveMcpServerDefinition();
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.requests.filter(r => r.url.endsWith('/revoke')).length, 1);
+  assert.equal(h.requests.filter(r => r.url.endsWith('/token') || r.url.endsWith('/token/refresh')).length, 0);
+  assert.equal(h.token, undefined);
+  assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.' + token.client_id), false);
+  assert.ok(h.logs.some(line => line.includes('token revocation: HTTP 200')));
+});
+
+test('sign-out can revoke an access token when no refresh token is saved', async t => {
+  const h = harness(t, { token: { ...freshToken(), refresh_token: undefined } });
+  await h.provider.resolveMcpServerDefinition();
+  await h.commands.get('rdh.signOut')();
+  const revoke = h.requests.find(r => r.url.endsWith('/revoke'));
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(revoke.init.body)), {
+    client_id: 'client', token: 'accepted', token_type_hint: 'access_token',
+  });
+  assert.equal(h.token, undefined);
+});
+
+test('sign-out revokes an interrupted refresh without replaying its rotation', async t => {
+  const token = { ...freshToken(), _got_at: 0, _refresh_state: 'pending' };
+  const h = harness(t, { token });
+  await until(() => h.logs.some(line => line.includes('old refresh token will not be replayed')));
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].url, 'https://xdistribute.site:8090/revoke');
+  assert.equal(new URLSearchParams(h.requests[0].init.body).get('token'), token.refresh_token);
+  assert.equal(h.token, undefined);
+});
+
+test('sign-out waits for an in-flight rotation and revokes its latest credentials', async t => {
+  let finish;
+  const h = harness(t, { token: { ...freshToken(), _got_at: 0 },
+    onRefresh: () => new Promise(resolve => { finish = resolve; }),
+  });
+  await until(() => finish);
+  const signingOut = h.commands.get('rdh.signOut')();
+  await tick();
+  assert.equal(h.requests.filter(r => r.url.endsWith('/revoke')).length, 0);
+  finish(Response.json({ ...freshToken(), refresh_token: 'latest-refresh' }));
+  await signingOut;
+  const revoke = h.requests.find(r => r.url.endsWith('/revoke'));
+  assert.equal(new URLSearchParams(revoke.init.body).get('token'), 'latest-refresh');
+  assert.equal(h.token, undefined);
+});
+
+for (const status of [401, 503]) {
+  test(`sign-out clears local secrets and reports unconfirmed revocation on HTTP ${status}`, async t => {
+    const h = harness(t, { token: freshToken(), recovery: true, revokeStatus: status });
+    await h.provider.resolveMcpServerDefinition();
+    await h.commands.get('rdh.signOut')();
+    assert.equal(h.token, undefined);
+    assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+    assert.ok(h.messages.some(message => message.includes('signed out locally') && message.includes('could not be confirmed')));
+    assert.ok(!h.messages.includes('Remote Device Hub: signed out'));
+    const reloaded = harness(t, { shared: h.shared, scope: h.scope });
+    assert.equal(await reloaded.provider.resolveMcpServerDefinition(), undefined);
+    assert.equal(reloaded.opens.length, 0);
+  });
+}
+
+test('a revocation timeout never leaks the request or reports a confirmed server sign-out', async t => {
+  const privateToken = 'private-refresh-value';
+  const h = harness(t, { token: { ...freshToken(), refresh_token: privateToken }, recovery: true,
+    onRevoke: () => { throw new Error('timed out: ' + privateToken); },
+  });
+  await h.provider.resolveMcpServerDefinition();
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.token, undefined);
+  assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+  assert.ok(h.messages.some(message => message.includes('could not be confirmed')));
+  assert.ok(![...h.messages, ...h.logs].join('\n').includes(privateToken));
+});
+
+test('sign-out purges malformed local credentials and reports that revocation is unconfirmed', async t => {
+  const h = harness(t, { shared: { stored: '{broken-json' } });
+  await until(() => h.logs.some(line => line.includes('Saved credentials could not be read')));
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.shared.stored, undefined);
+  assert.equal(h.requests.length, 0);
+  assert.ok(h.messages.some(message => message.includes('could not be confirmed')));
+});
+
+test('sign-out preserves a newer account published while revocation is in flight', async t => {
+  let finish;
+  const h = harness(t, { token: freshToken(), recovery: true,
+    onRevoke: () => new Promise(resolve => { finish = resolve; }),
+  });
+  await h.provider.resolveMcpServerDefinition();
+  const signingOut = h.commands.get('rdh.signOut')();
+  await until(() => finish);
+  const newer = { ...freshToken(), client_id: 'new-client', refresh_token: 'new-account-refresh' };
+  h.shared.stored = JSON.stringify(newer);
+  h.shared.extraSecrets.set('rdh.refreshKey.v1.new-client', 'new-account-key');
+  finish(new Response(null, { status: 200 }));
+  await signingOut;
+  assert.deepEqual(h.token, newer);
+  assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+  assert.equal(h.shared.extraSecrets.get('rdh.refreshKey.v1.new-client'), 'new-account-key');
+});
+
+test('local sign-out survives reload while server revocation is still pending', async t => {
+  let finish;
+  const a = harness(t, { token: freshToken(), recovery: true,
+    onRevoke: () => new Promise(resolve => { finish = resolve; }),
+  });
+  await a.provider.resolveMcpServerDefinition();
+  const signingOut = a.commands.get('rdh.signOut')();
+  await until(() => finish);
+  assert.equal(a.token, undefined);
+  assert.equal(a.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+  const b = harness(t, { shared: a.shared, scope: a.scope });
+  const resolving = b.provider.resolveMcpServerDefinition();
+  await tick();
+  assert.equal(b.token, undefined);
+  assert.equal(b.opens.length, 0);
+  finish(new Response(null, { status: 200 }));
+  await signingOut;
+  assert.equal(await resolving, undefined);
+});
+
+test('sign-out cancels background refresh in every window sharing the credentials', async t => {
+  const clock = { now: Date.now() };
+  const a = harness(t, { token: freshToken(), clock });
+  const b = harness(t, { shared: a.shared, scope: a.scope, clock });
+  await until(() => a.timers.size === 1 && b.timers.size === 1);
+  await a.commands.get('rdh.signOut')();
+  await until(() => a.timers.size === 0 && b.timers.size === 0);
+  await a.advance(60 * 60 * 1000);
+  await b.advance(60 * 60 * 1000);
+  assert.equal(a.requests.filter(r => r.url.endsWith('/revoke')).length, 1);
+  assert.equal(a.requests.concat(b.requests).filter(r => r.url.endsWith('/token') || r.url.endsWith('/token/refresh')).length, 0);
+  assert.equal(a.opens.length + b.opens.length, 0);
+});
+
 test('a delayed refresh response does not restore credentials removed by another host', async t => {
   let finish;
   const h = harness(t, { token: { ...freshToken(), _got_at: 0 }, recovery: true,
