@@ -5,59 +5,123 @@
   "version": "0.0.14",
   "publisher": "xdistribute",
   "license": "UNLICENSED",
-  "engines": { "vscode": "^1.105.0" },
-  "categories": ["AI", "Other"],
-  "keywords": ["mcp", "agent", "remote", "device"],
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "agent",
+    "remote",
+    "device"
+  ],
   "main": "./out/extension.js",
-  "extensionKind": ["workspace"],
-  "activationEvents": ["onStartupFinished", "onChatParticipant:xdistribute.remote-device-hub.chat"],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onChatParticipant:xdistribute.remote-device-hub.chat"
+  ],
   "contributes": {
     "configuration": {
       "title": "Remote Device Hub",
       "properties": {
         "remoteDeviceHub.chat.executionMode": {
-          "type": "string", "enum": ["confirm", "automatic"], "default": "confirm", "scope": "machine",
+          "type": "string",
+          "enum": [
+            "confirm",
+            "automatic"
+          ],
+          "default": "confirm",
+          "scope": "machine",
           "markdownDescription": "Execution policy for `@remote-device-hub`. Confirm asks before each non-read-only call. Automatic runs on explicitly permitted devices with explicitly permitted tools. Only User or Remote settings can grant automatic access."
         },
         "remoteDeviceHub.chat.automaticDevices": {
-          "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}$" },
-          "uniqueItems": true, "default": [], "scope": "machine",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "scope": "machine",
           "markdownDescription": "Exact device IDs permitted for device operations in automatic chat mode. Obtain IDs with `list_devices`. No wildcards. Global read-only discovery is always available."
         },
         "remoteDeviceHub.chat.automaticTools": {
-          "type": "array", "items": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,128}$" },
-          "uniqueItems": true, "default": [], "scope": "machine",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,128}$"
+          },
+          "uniqueItems": true,
+          "default": [],
+          "scope": "machine",
           "markdownDescription": "Exact non-read-only tool names permitted without confirmation in automatic chat mode. For example: `start_process`, `write_file`, `edit_file`. Allowing `start_process` lets the agent execute arbitrary shell commands with the remote Agent account's OS permissions."
         },
         "remoteDeviceHub.chat.maxModelTurns": {
-          "type": "integer", "minimum": 0, "default": 0, "scope": "machine",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "scope": "machine",
           "description": "Maximum model turns per chat request. 0 allows iteration until completion, cancellation, another budget, or an error."
         },
         "remoteDeviceHub.chat.maxToolCalls": {
-          "type": "integer", "minimum": 0, "default": 0, "scope": "machine",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "scope": "machine",
           "description": "Maximum tool calls per chat request. 0 removes the tool call budget. Calls still require the configured execution permissions."
         },
         "remoteDeviceHub.chat.maxDurationMinutes": {
-          "type": "integer", "minimum": 0, "maximum": 1440, "default": 60, "scope": "machine",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1440,
+          "default": 60,
+          "scope": "machine",
           "description": "Time budget in minutes for one chat request, including waits. 0 removes the deadline. Changing chat execution settings stops active runs."
         }
       }
     },
-    "chatParticipants": [{
-      "id": "xdistribute.remote-device-hub.chat",
-      "name": "remote-device-hub",
-      "fullName": "Remote Device Hub",
-      "description": "Describe a remote device task, such as \"List my authorized devices\" or \"Check free disk space on a device\"",
-      "isSticky": true
-    }],
+    "chatParticipants": [
+      {
+        "id": "xdistribute.remote-device-hub.chat",
+        "name": "remote-device-hub",
+        "fullName": "Remote Device Hub",
+        "description": "Describe a remote device task, such as \"List my authorized devices\" or \"Check free disk space on a device\"",
+        "isSticky": true
+      }
+    ],
     "mcpServerDefinitionProviders": [
-      { "id": "xdistribute.remote-device-hub", "label": "Remote Device Hub" }
+      {
+        "id": "xdistribute.remote-device-hub",
+        "label": "Remote Device Hub"
+      }
     ],
     "commands": [
-      { "command": "rdh.signIn", "title": "Sign In", "category": "Remote Device Hub" },
-      { "command": "rdh.signOut", "title": "Sign Out", "category": "Remote Device Hub" },
-      { "command": "rdh.showStatus", "title": "Show Status", "category": "Remote Device Hub" },
-      { "command": "rdh.showLogs", "title": "Show Logs", "category": "Remote Device Hub" }
+      {
+        "command": "rdh.signIn",
+        "title": "Sign In",
+        "category": "Remote Device Hub"
+      },
+      {
+        "command": "rdh.signOut",
+        "title": "Sign Out",
+        "category": "Remote Device Hub"
+      },
+      {
+        "command": "rdh.showStatus",
+        "title": "Show Status",
+        "category": "Remote Device Hub"
+      },
+      {
+        "command": "rdh.showLogs",
+        "title": "Show Logs",
+        "category": "Remote Device Hub"
+      }
     ]
   },
   "scripts": {
@@ -65,9 +129,14 @@
     "test": "npm run compile && node --test test/*.test.cjs",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
-    "package:vsix": "vsce package --allow-missing-repository --no-dependencies"
+    "package:vsix": "vsce package --allow-missing-repository --no-dependencies",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "style:check": "biome check ."
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.105.0",
     "@vscode/vsce": "^3.0.0",

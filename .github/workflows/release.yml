@@ -41,6 +41,10 @@ jobs:
         if: steps.check.outputs.skip == 'false'
         run: npm ci
 
+      - name: Check code style
+        if: steps.check.outputs.skip == 'false'
+        run: npm run style:check
+
       - name: Run tests
         if: steps.check.outputs.skip == 'false'
         run: npm test

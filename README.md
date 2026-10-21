@@ -106,6 +106,14 @@ The chat client targets RDH's stateless Streamable HTTP configuration with JSON 
 
 ## Development
 
+`npm run format` formats maintained sources and tests. `npm run style:check`
+checks formatting and lint rules without editing files; `npm run lint` runs only
+lint rules. Biome is pinned as a development dependency. The common convention
+is two spaces, single quotes, semicolons, trailing commas, and one statement per
+line. Type-only imports are explicit; explicit `any` and `@ts-ignore` are rejected.
+Generated files and third-party code are outside the formatting scope.
+
+
 ```bash
 npm install
 npm run compile     # Or use npm run watch during development
@@ -133,7 +141,10 @@ The integration tests cover ordinary sign-out, rotation before sign-out, lost re
 
 | File | Purpose |
 |---|---|
-| `src/extension.ts` | Authentication, token management, and the MCP provider |
+| `src/extension.ts` | Extension activation, commands, and MCP provider integration |
+| `src/authSession.ts` | Authentication state, refresh recovery, timers, and disposal |
+| `src/credentialStore.ts` | SecretStorage formats and conditional credential cleanup |
+| `src/authCallback.ts` | Temporary OAuth callback servers and cancellable waits |
 | `src/boundaries.ts` | Validation for saved credentials, OAuth responses, and MCP messages |
 | `src/chat.ts` | Chat participant, model tool calls, and the MCP HTTP client |
 | `src/chatRun.ts` | Chat execution permissions, budgets, and cancellation |

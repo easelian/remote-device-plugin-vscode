@@ -1,0 +1,103 @@
+import * as http from 'http';
+import { REQUEST_TIMEOUT_MS } from './authConfig';
+
+interface CallbackResult {
+  code?: string | undefined;
+  state?: string | undefined;
+  error?: string | undefined;
+  errorDescription?: string | undefined;
+}
+
+export function startCallbackServer(): Promise<{
+  port: number;
+  waitForCode: (expectedState: string, timeoutMs: number) => Promise<CallbackResult>;
+  close: () => void;
+}> {
+  return new Promise((resolveServer, rejectServer) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settle: (r: CallbackResult) => void = () => {
+      /* noop */
+    };
+    const resultPromise = new Promise<CallbackResult>((res) => {
+      settle = res;
+    });
+
+    const server = http.createServer((req, res) => {
+      const u = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (u.pathname !== '/callback') {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      const q = u.searchParams;
+      const result: CallbackResult = {
+        code: q.get('code') ?? undefined,
+        state: q.get('state') ?? undefined,
+        error: q.get('error') ?? undefined,
+        errorDescription: q.get('error_description') ?? undefined,
+      };
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(
+        result.error
+          ? `<html><body><h2>Authorization failed</h2><p>${result.error}</p></body></html>`
+          : '<html><body><h2>Authorization received - you can close this page</h2></body></html>',
+      );
+      settle(result);
+    });
+
+    server.on('error', rejectServer);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (!addr || typeof addr === 'string') {
+        rejectServer(new Error('no port'));
+        return;
+      }
+      resolveServer({
+        port: addr.port,
+        waitForCode: (expectedState, timeoutMs) =>
+          new Promise<CallbackResult>((res) => {
+            timer = setTimeout(
+              () => res({ error: 'timeout', errorDescription: 'no callback received' }),
+              timeoutMs,
+            );
+            void resultPromise.then((r) => {
+              clearTimeout(timer);
+              if (r.error || r.state === expectedState) {
+                res(r);
+              } else {
+                res({ error: 'state_mismatch', errorDescription: 'state validation failed' });
+              }
+            });
+          }),
+        close: () => {
+          clearTimeout(timer);
+          settle({ error: 'cancelled' });
+          server.close();
+          server.closeAllConnections();
+        },
+      });
+    });
+  });
+}
+
+export function abortable<T>(
+  work: Thenable<T>,
+  signal: AbortSignal,
+  stage: string,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<T> {
+  let cleanup = () => {};
+  return new Promise<T>((resolve, reject) => {
+    const aborted = () => reject(signal.reason);
+    const timer = setTimeout(() => reject(new Error(`${stage} timed out`)), timeoutMs);
+    cleanup = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', aborted);
+    };
+    signal.addEventListener('abort', aborted, { once: true });
+    if (signal.aborted) {
+      aborted();
+    }
+    Promise.resolve(work).then(resolve, reject);
+  }).finally(() => cleanup());
+}
