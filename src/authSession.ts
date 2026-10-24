@@ -6,12 +6,7 @@ import { CredentialError, msg } from './authErrors';
 import { abortable, startCallbackServer } from './authCallback';
 import { isRecord, readClientId, readTokenResponse, type TokenSet } from './boundaries';
 import {
-  AUTH_BASE,
-  MCP_URI,
-  TOKEN_URI,
-  REFRESH_URI,
-  REVOKE_URI,
-  RESOURCE,
+  type DeploymentConfig,
   SCOPE,
   REFRESH_MARGIN_S,
   REFRESH_RETRY_MS,
@@ -41,9 +36,10 @@ export class AuthSession implements vscode.Disposable {
   constructor(
     context: vscode.ExtensionContext,
     private readonly log: vscode.LogOutputChannel,
+    private readonly deployment: DeploymentConfig,
   ) {
-    this.store = new CredentialStore(context.secrets);
-    this.scope = context.globalStorageUri.fsPath;
+    this.store = new CredentialStore(context.secrets, deployment.credentialNamespace);
+    this.scope = `${context.globalStorageUri.fsPath}:${deployment.credentialNamespace}`;
     this.storageSubscription = this.store.onDidChange(() => {
       this.changeEmitter.fire();
       void this.scheduleRefresh();
@@ -246,7 +242,7 @@ export class AuthSession implements vscode.Disposable {
   // A locally unexpired token may have been revoked. Check it with an MCP ping
   // so this extension can recover before VS Code starts its own OAuth flow.
   async acceptsToken(t: TokenSet): Promise<boolean> {
-    const resp = await fetch(MCP_URI, {
+    const resp = await fetch(this.deployment.mcpUri, {
       method: 'POST',
       redirect: 'error',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -334,7 +330,7 @@ export class AuthSession implements vscode.Disposable {
         grant_type: 'refresh_token',
         refresh_token: t.refresh_token,
         client_id: t.client_id,
-        resource: RESOURCE,
+        resource: this.deployment.resource,
       });
       if (requestId) {
         body.set('rdh_refresh_id', requestId);
@@ -347,7 +343,7 @@ export class AuthSession implements vscode.Disposable {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: body.toString(),
         });
-      let resp = await send(requestId ? REFRESH_URI : TOKEN_URI);
+      let resp = await send(requestId ? this.deployment.refreshUri : this.deployment.tokenUri);
       if (requestId && resp.status === 404 && t._refresh_state !== 'pending') {
         // Older servers have no recovery endpoint. A definitive 404 on the first
         // request permits legacy fallback; an indeterminate request never does.
@@ -355,7 +351,7 @@ export class AuthSession implements vscode.Disposable {
         delete pending._refresh_request_id;
         await this.store.save(pending);
         body.delete('rdh_refresh_id');
-        resp = await send(TOKEN_URI);
+        resp = await send(this.deployment.tokenUri);
         this.log.debug('server has no refresh recovery endpoint; used legacy refresh');
       }
       const responseRequestId = resp.headers.get('x-request-id');
@@ -560,7 +556,8 @@ export class AuthSession implements vscode.Disposable {
             progress.report({ message: 'Preparing authorization…' });
             const requestSignal = () =>
               AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
-            const reg = await fetch(`${AUTH_BASE}/register`, {
+            const reg = await fetch(`${this.deployment.authBase}/register`, {
+              redirect: 'error',
               method: 'POST',
               signal: requestSignal(),
               headers: { 'Content-Type': 'application/json' },
@@ -583,7 +580,7 @@ export class AuthSession implements vscode.Disposable {
             const state = base64url(crypto.randomBytes(16));
 
             // 3) Open the browser for authorization
-            const authUrl = new URL(`${AUTH_BASE}/authorize`);
+            const authUrl = new URL(`${this.deployment.authBase}/authorize`);
             const params: Record<string, string> = {
               response_type: 'code',
               client_id: clientId,
@@ -592,7 +589,7 @@ export class AuthSession implements vscode.Disposable {
               code_challenge_method: 'S256',
               scope: SCOPE,
               state,
-              resource: RESOURCE,
+              resource: this.deployment.resource,
             };
             for (const [k, v] of Object.entries(params)) {
               authUrl.searchParams.set(k, v);
@@ -639,9 +636,9 @@ export class AuthSession implements vscode.Disposable {
               redirect_uri: redirectUri,
               client_id: clientId,
               code_verifier: verifier,
-              resource: RESOURCE,
+              resource: this.deployment.resource,
             });
-            const resp = await fetch(TOKEN_URI, {
+            const resp = await fetch(this.deployment.tokenUri, {
               method: 'POST',
               redirect: 'error',
               signal: requestSignal(),
@@ -717,7 +714,7 @@ export class AuthSession implements vscode.Disposable {
       }
       if (clientId && revocation) {
         try {
-          const response = await fetch(REVOKE_URI, {
+          const response = await fetch(this.deployment.revokeUri, {
             method: 'POST',
             redirect: 'error',
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

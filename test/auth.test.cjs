@@ -1,6 +1,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { harness, freshToken, tick, until } = require('./helpers/authHarness.cjs');
+const {
+  harness,
+  freshToken,
+  tick,
+  until,
+  TOKEN_KEY,
+  REFRESH_KEY_PREFIX,
+} = require('./helpers/authHarness.cjs');
 const realFetch = global.fetch;
 
 for (const ssh of [false, true]) {
@@ -9,7 +16,7 @@ for (const ssh of [false, true]) {
     await until(() => h.token);
     assert.equal(h.token._refresh_recovery, true);
     assert.match(
-      h.shared.extraSecrets.get('rdh.refreshKey.v1.' + h.token.client_id),
+      h.shared.extraSecrets.get(REFRESH_KEY_PREFIX + h.token.client_id),
       /^[A-Za-z0-9_-]{43}$/,
     );
     assert.equal(h.opens.length, 1);
@@ -18,7 +25,7 @@ for (const ssh of [false, true]) {
     const registration = h.requests.find((r) => r.url.endsWith('/register'));
     assert.equal(JSON.parse(registration.init.body).redirect_uris[0], browserRedirect);
     const exchange = h.requests.find((r) => r.url.endsWith('/token'));
-    assert.equal(exchange.url, 'https://xdistribute.site:8090/token');
+    assert.equal(exchange.url, 'https://mcp.easelian.com/token');
     assert.equal(exchange.init.redirect, 'error');
     const body = new URLSearchParams(exchange.init.body);
     assert.equal(body.get('redirect_uri'), browserRedirect);
@@ -199,8 +206,7 @@ test('a failed credential save retries persistence without rotating again', asyn
   const h = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
     refreshOk: true,
-    failStore: (key, value) =>
-      failSave && key === 'rdh.tokens.v1' && !JSON.parse(value)._refresh_state,
+    failStore: (key, value) => failSave && key === TOKEN_KEY && !JSON.parse(value)._refresh_state,
   });
   await until(() => h.logs.some((line) => line.includes('secret storage unavailable')));
   assert.equal(h.token._refresh_state, 'pending');
@@ -221,8 +227,7 @@ test('a running extension retries saving a rotation response in the background',
     clock,
     token: { ...freshToken(), _got_at: 0 },
     refreshOk: true,
-    failStore: (key, value) =>
-      failSave && key === 'rdh.tokens.v1' && !JSON.parse(value)._refresh_state,
+    failStore: (key, value) => failSave && key === TOKEN_KEY && !JSON.parse(value)._refresh_state,
   });
   await until(
     () => h.logs.some((line) => line.includes('secret storage unavailable')) && h.timers.size === 1,
@@ -239,7 +244,7 @@ test('a reload cannot retry a rotation whose response existed only in the old ho
   const a = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
     refreshOk: true,
-    failStore: (key, value) => key === 'rdh.tokens.v1' && !JSON.parse(value)._refresh_state,
+    failStore: (key, value) => key === TOKEN_KEY && !JSON.parse(value)._refresh_state,
   });
   await until(() => a.logs.some((line) => line.includes('secret storage unavailable')));
   const b = harness(t, { shared: a.shared, scope: a.scope, refreshOk: true });
@@ -272,8 +277,7 @@ test('refresh is never sent if its intent cannot be persisted', async (t) => {
   const h = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
     refreshOk: true,
-    failStore: (key, value) =>
-      key === 'rdh.tokens.v1' && JSON.parse(value)._refresh_state === 'pending',
+    failStore: (key, value) => key === TOKEN_KEY && JSON.parse(value)._refresh_state === 'pending',
   });
   assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
   assert.equal(h.requests.filter((r) => r.url.endsWith('/token')).length, 0);
@@ -346,7 +350,7 @@ test('another window reschedules refresh when shared credentials rotate', async 
   const rotated = { ...freshToken(), _got_at: clock.now / 1000 + 10 * 60 };
   a.shared.stored = JSON.stringify(rotated);
   for (const fn of a.shared.secretListeners) {
-    fn({ key: 'rdh.tokens.v1' });
+    fn({ key: TOKEN_KEY });
   }
   await until(() => b.timers.size === 1);
   assert.equal([...b.timers.values()][0].at, (rotated._got_at + 3600 - 180) * 1000);
@@ -574,7 +578,7 @@ test('recovery keys and proofs are never logged or sent as raw keys', async (t) 
     (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
     'Bearer accepted',
   );
-  const privateKey = h.shared.extraSecrets.get('rdh.refreshKey.v1.' + h.token.client_id);
+  const privateKey = h.shared.extraSecrets.get(REFRESH_KEY_PREFIX + h.token.client_id);
   assert.ok(privateKey);
   assert.ok(!JSON.stringify(h.requests).includes(privateKey));
   assert.ok(!h.logs.join('\n').includes(privateKey));
@@ -586,7 +590,7 @@ test('recovery keys and proofs are never logged or sent as raw keys', async (t) 
 test('sign-out removes the private recovery key created by sign-in', async (t) => {
   const h = harness(t);
   await until(() => h.token);
-  const key = 'rdh.refreshKey.v1.' + h.token.client_id;
+  const key = REFRESH_KEY_PREFIX + h.token.client_id;
   assert.ok(h.shared.extraSecrets.has(key));
   await h.commands.get('rdh.signOut')();
   assert.equal(h.shared.extraSecrets.has(key), false);
@@ -600,8 +604,8 @@ test('sign-out clears local secrets and revokes the saved refresh grant', async 
     recovery: true,
     onRevoke: async (url, init) => {
       assert.equal(h.token, undefined);
-      assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.' + token.client_id), false);
-      assert.equal(url, 'https://xdistribute.site:8090/revoke');
+      assert.equal(h.shared.extraSecrets.has(REFRESH_KEY_PREFIX + token.client_id), false);
+      assert.equal(url, 'https://mcp.easelian.com/revoke');
       assert.equal(init.method, 'POST');
       assert.equal(init.redirect, 'error');
       assert.ok(init.signal);
@@ -622,7 +626,7 @@ test('sign-out clears local secrets and revokes the saved refresh grant', async 
     0,
   );
   assert.equal(h.token, undefined);
-  assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.' + token.client_id), false);
+  assert.equal(h.shared.extraSecrets.has(REFRESH_KEY_PREFIX + token.client_id), false);
   assert.ok(h.logs.some((line) => line.includes('token revocation: HTTP 200')));
 });
 
@@ -645,7 +649,7 @@ test('sign-out revokes an interrupted refresh without replaying its rotation', a
   await until(() => h.logs.some((line) => line.includes('old refresh token will not be replayed')));
   await h.commands.get('rdh.signOut')();
   assert.equal(h.requests.length, 1);
-  assert.equal(h.requests[0].url, 'https://xdistribute.site:8090/revoke');
+  assert.equal(h.requests[0].url, 'https://mcp.easelian.com/revoke');
   assert.equal(new URLSearchParams(h.requests[0].init.body).get('token'), token.refresh_token);
   assert.equal(h.token, undefined);
 });
@@ -676,7 +680,7 @@ for (const status of [401, 503]) {
     await h.provider.resolveMcpServerDefinition();
     await h.commands.get('rdh.signOut')();
     assert.equal(h.token, undefined);
-    assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+    assert.equal(h.shared.extraSecrets.has(REFRESH_KEY_PREFIX + 'client'), false);
     assert.ok(
       h.messages.some(
         (message) =>
@@ -702,7 +706,7 @@ test('a revocation timeout never leaks the request or reports a confirmed server
   await h.provider.resolveMcpServerDefinition();
   await h.commands.get('rdh.signOut')();
   assert.equal(h.token, undefined);
-  assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+  assert.equal(h.shared.extraSecrets.has(REFRESH_KEY_PREFIX + 'client'), false);
   assert.ok(h.messages.some((message) => message.includes('could not be confirmed')));
   assert.ok(![...h.messages, ...h.logs].join('\n').includes(privateToken));
 });
@@ -731,12 +735,12 @@ test('sign-out preserves a newer account published while revocation is in flight
   await until(() => finish);
   const newer = { ...freshToken(), client_id: 'new-client', refresh_token: 'new-account-refresh' };
   h.shared.stored = JSON.stringify(newer);
-  h.shared.extraSecrets.set('rdh.refreshKey.v1.new-client', 'new-account-key');
+  h.shared.extraSecrets.set(REFRESH_KEY_PREFIX + 'new-client', 'new-account-key');
   finish(new Response(null, { status: 200 }));
   await signingOut;
   assert.deepEqual(h.token, newer);
-  assert.equal(h.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
-  assert.equal(h.shared.extraSecrets.get('rdh.refreshKey.v1.new-client'), 'new-account-key');
+  assert.equal(h.shared.extraSecrets.has(REFRESH_KEY_PREFIX + 'client'), false);
+  assert.equal(h.shared.extraSecrets.get(REFRESH_KEY_PREFIX + 'new-client'), 'new-account-key');
 });
 
 test('local sign-out survives reload while server revocation is still pending', async (t) => {
@@ -753,7 +757,7 @@ test('local sign-out survives reload while server revocation is still pending', 
   const signingOut = a.commands.get('rdh.signOut')();
   await until(() => finish);
   assert.equal(a.token, undefined);
-  assert.equal(a.shared.extraSecrets.has('rdh.refreshKey.v1.client'), false);
+  assert.equal(a.shared.extraSecrets.has(REFRESH_KEY_PREFIX + 'client'), false);
   const b = harness(t, { shared: a.shared, scope: a.scope });
   const resolving = b.provider.resolveMcpServerDefinition();
   await tick();

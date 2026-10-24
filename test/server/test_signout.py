@@ -41,9 +41,6 @@ async def run_signout(value):
 @pytest.mark.parametrize("scenario", ["current", "rotated", "lost_refresh_response", "lost_revocation_response"])
 async def test_compiled_extension_signout_revokes_the_entire_grant(live, scenario):
     client, app, _, url = live
-    app.state.oauth.config.oauth_resource_aliases = {
-        "https://mcp.xdistribute.site/mcp": "https://mcp.xdistribute.site/",
-    }
     identity, original = await token_for(client, url)
     _, other = await token_for(client, url)
     record = await app.state.store.aget("refresh", digest(original["refresh_token"]))

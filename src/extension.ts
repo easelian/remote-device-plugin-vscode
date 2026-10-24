@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AuthSession } from './authSession';
 import { CredentialError, msg } from './authErrors';
-import { MCP_URI } from './authConfig';
+import { resolveDeployment, userDeploymentValue, type DeploymentConfig } from './authConfig';
 import { registerChat } from './chat';
 import { isRecord, type TokenSet } from './boundaries';
 
@@ -15,9 +15,47 @@ export function activate(context: vscode.ExtensionContext): void {
     isRecord(manifest) && typeof manifest.version === 'string' ? manifest.version : 'development';
   log.info(`Remote Device Hub ${version} activated`);
 
-  const auth = new AuthSession(context, log);
+  context.subscriptions.push(log);
+  let deployment: DeploymentConfig;
+  try {
+    deployment = readDeployment();
+  } catch (error) {
+    void vscode.window.showErrorMessage(
+      `Remote Device Hub: ${msg(error)}. Correct User or Remote settings and reload the window.`,
+    );
+    return;
+  }
+  const auth = new AuthSession(context, log, deployment);
+  log.info(`Deployment: ${deployment.authBase}; website: ${deployment.publicUrl}`);
   context.subscriptions.push(
-    log,
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (
+        !event.affectsConfiguration('remoteDeviceHub.publicUrl') &&
+        !event.affectsConfiguration('remoteDeviceHub.mcpPublicUrl')
+      ) {
+        return;
+      }
+      try {
+        const next = readDeployment();
+        if (next.publicUrl === deployment.publicUrl && next.authBase === deployment.authBase) {
+          return;
+        }
+      } catch {
+        // Invalid new settings also require correction and a reload.
+      }
+      void vscode.window
+        .showWarningMessage(
+          `Remote Device Hub deployment settings changed. This window continues using ${deployment.authBase} until you reload.`,
+          'Reload Window',
+        )
+        .then((choice) => {
+          if (choice === 'Reload Window') {
+            void vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        });
+    }),
+  );
+  context.subscriptions.push(
     vscode.commands.registerCommand('rdh.signIn', () => auth.signIn(true)),
     vscode.commands.registerCommand('rdh.signOut', () => auth.signOut()),
     vscode.commands.registerCommand('rdh.showStatus', () => auth.showStatus()),
@@ -26,7 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   registerChat(context, {
-    endpoint: MCP_URI,
+    endpoint: deployment.mcpUri,
     ensureSignedIn: async () => {
       try {
         if (await auth.getAcceptedToken()) {
@@ -61,10 +99,10 @@ export function activate(context: vscode.ExtensionContext): void {
             ? 'definition provided with saved credentials (validated before startup)'
             : 'definition provided without a token (sign-in will be requested when the server starts)',
         );
-        return [makeServer(t)];
+        return [makeServer(deployment, t)];
       } catch (e) {
         log.error(`provideMcpServerDefinitions failed: ${msg(e)}`);
-        return [makeServer()];
+        return [makeServer(deployment)];
       }
     },
     resolveMcpServerDefinition: async () => {
@@ -88,7 +126,7 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         }
         log.info('MCP server start approved; resolving definition with fresh credentials');
-        return makeServer(t);
+        return makeServer(deployment, t);
       } catch (e) {
         log.error(`resolveMcpServerDefinition failed: ${msg(e)}`);
         if (e instanceof CredentialError) {
@@ -110,10 +148,18 @@ export function deactivate(): void {
   /* VS Code disposes context subscriptions. */
 }
 
-function makeServer(t?: TokenSet): vscode.McpHttpServerDefinition {
+function makeServer(deployment: DeploymentConfig, t?: TokenSet): vscode.McpHttpServerDefinition {
   return new vscode.McpHttpServerDefinition(
     SERVER_LABEL,
-    vscode.Uri.parse(MCP_URI),
+    vscode.Uri.parse(deployment.mcpUri),
     t ? { Authorization: `Bearer ${t.access_token}` } : undefined,
   );
+}
+
+function readDeployment(): DeploymentConfig {
+  const settings = vscode.workspace.getConfiguration('remoteDeviceHub');
+  return resolveDeployment({
+    publicUrl: userDeploymentValue(settings.inspect('publicUrl')),
+    mcpPublicUrl: userDeploymentValue(settings.inspect('mcpPublicUrl')),
+  });
 }

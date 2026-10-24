@@ -83,6 +83,18 @@
           "default": 60,
           "scope": "machine",
           "description": "Time budget in minutes for one chat request, including waits. 0 removes the deadline. Changing chat execution settings stops active runs."
+        },
+        "remoteDeviceHub.publicUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Website origin for this deployment. Empty uses the packaged deployment default. Does not select the OAuth authority. Only User or Remote settings are accepted. Reload the window to apply changes. HTTPS required, except HTTP loopback origins."
+        },
+        "remoteDeviceHub.mcpPublicUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "MCP and OAuth origin for this deployment. Empty uses the packaged deployment default. Credentials are isolated by this origin; changing it requires signing in separately. Only User or Remote settings are accepted. Reload the window to apply changes. HTTPS required, except HTTP loopback origins."
         }
       }
     },

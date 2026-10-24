@@ -23,6 +23,7 @@ async function main() {
       },
     },
     {
+      configuration: { mcpPublicUrl: { globalValue: input.server } },
       token: saved.token,
       recovery: true,
       recoveryKey: saved.recoveryKey,
@@ -63,7 +64,7 @@ async function main() {
         input.save,
         JSON.stringify({
           token: h.token,
-          recoveryKey: h.shared.extraSecrets.get('rdh.refreshKey.v1.' + h.token.client_id),
+          recoveryKey: h.shared.extraSecrets.get(h.refreshKeyPrefix + h.token.client_id),
         }),
         { mode: 0o600 },
       );
@@ -86,7 +87,7 @@ async function main() {
         JSON.stringify({
           signedOut: !h.token,
           recoveryKeyRemoved: !h.shared.extraSecrets.has(
-            'rdh.refreshKey.v1.' + saved.token.client_id,
+            h.refreshKeyPrefix + saved.token.client_id,
           ),
           revocationConfirmed: h.logs.some((line) => line.includes('token revocation: HTTP 200')),
           warningShown: h.messages.some((message) =>

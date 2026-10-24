@@ -14,7 +14,21 @@ Install the extension and reload VS Code. If you need to sign in, the extension 
 
 Standard sign-in, legacy refresh, and sign-out use the service's existing authentication endpoints. Recovery after a lost refresh response requires a Hub version that supports `/token/refresh`.
 
-Browser authorization and client registration use `https://mcp.xdistribute.site`. Token exchange uses `https://xdistribute.site:8090/token`; refresh uses `/token/refresh` on that same trusted origin. This keeps renewal traffic off the proxy route. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
+Browser authorization, client registration, token exchange, refresh, and revocation use the configured MCP origin, which defaults to `https://mcp.easelian.com`. MCP transport and the OAuth resource both use `/mcp` at that origin. The website defaults to `https://easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
+
+Deployment settings belong in **User** or **Remote** settings. Workspace and folder settings cannot redirect credentials:
+
+```json
+{
+  "remoteDeviceHub.publicUrl": "https://easelian.com",
+  "remoteDeviceHub.mcpPublicUrl": "https://mcp.easelian.com"
+}
+```
+
+Empty values use the packaged defaults from `src/deploymentDefaults.ts`. Both settings accept origins only: no paths, query strings, fragments, or embedded credentials. HTTPS is required; HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development servers. `publicUrl` identifies the website and never selects an OAuth endpoint. `mcpPublicUrl` selects `/authorize`, `/register`, `/token`, `/token/refresh`, `/revoke`, and `/mcp` together.
+
+Reload the window after changing deployment settings. Until reload, existing and new requests in that window continue using the original deployment. Sign out before changing deployments if you also want to revoke the old deployment's grant. Each MCP origin has separate saved tokens, sign-in history, and refresh recovery keys; switching back reuses its saved state. Legacy credentials without a deployment identity are retained but never used or copied to a new deployment, so upgrading from the old fixed endpoint requires signing in again.
+
 
 1. The extension runs in the workspace extension host (`extensionKind: ["workspace"]`), which on an SSH host is the remote host. This keeps it in the same extension host as language-model providers, so `@remote-device-hub` can resolve the selected chat model. It starts a temporary callback server on a random `127.0.0.1` port on its host.
 2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
@@ -32,7 +46,7 @@ Before starting the server, VS Code calls `resolveMcpServerDefinition`. The exte
 
 Activation also checks saved credentials with the service. A first installation opens browser sign-in automatically. A shared record prevents other windows or reloads from opening another browser after that attempt is canceled, times out, or fails. Existing credentials are renewed silently; if they cannot be renewed, use `Remote Device Hub: Sign In` to reconnect. MCP startup and chat show a `Sign In` action when saved credentials need attention. Typing `@` alone does not start authentication.
 
-Refresh tokens are single-use. New sign-ins create a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Legacy credentials retain their original refresh flow until the next explicit sign-in. If a legacy response was lost or the service has already revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
+Refresh tokens are single-use. New sign-ins create a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Deployment-scoped credentials without recovery metadata retain the legacy refresh flow until the next explicit sign-in. If a legacy response was lost or the service has already revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
 
 **Local VS Code:** Install the VSIX, run `Developer: Reload Window`, and complete authorization in your browser if prompted.
 
@@ -156,7 +170,6 @@ The integration tests cover ordinary sign-out, rotation before sign-out, lost re
 
 - [ ] Confirm the publisher, extension name, and versioning policy. The current identifiers are `xdistribute` and `remote-device-hub`.
 - [ ] Add an icon and localization support. Documentation, comments, and UI text currently use American English.
-- [ ] Expose deployment settings through `contributes.configuration`, including service URLs and direct connections on port 8090.
 - [ ] Test an actual Remote SSH session with a client-side browser and a remote extension host, including the `asExternalUri` tunnel.
 - [ ] Publish VSIX packages through the RDH service's `downloads` directory, Marketplace, or Open VSX.
 - [ ] Consider a server-side `device_code` flow for environments without a browser, including CI.

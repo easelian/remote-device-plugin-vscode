@@ -2,10 +2,6 @@ import type * as vscode from 'vscode';
 import { isRecord, isTokenSet, parseJson, type TokenSet } from './boundaries';
 import { CredentialError } from './authErrors';
 
-const SECRET_KEY = 'rdh.tokens.v1';
-const AUTH_STATE_KEY = 'rdh.authState.v1';
-const REFRESH_KEY_PREFIX = 'rdh.refreshKey.v1.';
-
 export interface RevocationCredential {
   token: string;
   token_type_hint: 'refresh_token' | 'access_token';
@@ -13,18 +9,31 @@ export interface RevocationCredential {
 
 // The session owns locking and transitions; this adapter owns storage format.
 export class CredentialStore {
-  constructor(private readonly secrets: vscode.SecretStorage) {}
+  private readonly secretKey: string;
+  private readonly authStateKey: string;
+  private readonly refreshKeyPrefix: string;
+
+  constructor(
+    private readonly secrets: vscode.SecretStorage,
+    namespace: string,
+  ) {
+    // Legacy unscoped records have no trustworthy deployment identity. Never
+    // copy them into a configured deployment or use them as a fallback.
+    this.secretKey = `${namespace}.tokens.v1`;
+    this.authStateKey = `${namespace}.authState.v1`;
+    this.refreshKeyPrefix = `${namespace}.refreshKey.v1.`;
+  }
 
   onDidChange(listener: () => void): vscode.Disposable {
     return this.secrets.onDidChange((event) => {
-      if (event.key === SECRET_KEY) {
+      if (event.key === this.secretKey) {
         listener();
       }
     });
   }
 
   async read(): Promise<TokenSet | undefined> {
-    const raw = await this.secrets.get(SECRET_KEY);
+    const raw = await this.secrets.get(this.secretKey);
     if (!raw) {
       return undefined;
     }
@@ -47,28 +56,28 @@ export class CredentialStore {
   }
 
   save(token: TokenSet): Thenable<void> {
-    return this.secrets.store(SECRET_KEY, JSON.stringify(token));
+    return this.secrets.store(this.secretKey, JSON.stringify(token));
   }
   hasAuthHistory(): Thenable<string | undefined> {
-    return this.secrets.get(AUTH_STATE_KEY);
+    return this.secrets.get(this.authStateKey);
   }
   recordAuthHistory(
     state: { attempted_at: number } | { signed_out_at: number } | { previously_signed_in: true },
   ): Thenable<void> {
-    return this.secrets.store(AUTH_STATE_KEY, JSON.stringify(state));
+    return this.secrets.store(this.authStateKey, JSON.stringify(state));
   }
   recoveryKey(clientId: string): Thenable<string | undefined> {
-    return this.secrets.get(REFRESH_KEY_PREFIX + clientId);
+    return this.secrets.get(this.refreshKeyPrefix + clientId);
   }
   saveRecoveryKey(clientId: string, key: string): Thenable<void> {
-    return this.secrets.store(REFRESH_KEY_PREFIX + clientId, key);
+    return this.secrets.store(this.refreshKeyPrefix + clientId, key);
   }
 
   // Sign-out must revoke expired and pending tokens without refreshing first.
   async readRevocation(): Promise<
     { clientId: string; credential?: RevocationCredential } | undefined
   > {
-    const raw = await this.secrets.get(SECRET_KEY);
+    const raw = await this.secrets.get(this.secretKey);
     if (!raw) {
       return undefined;
     }
@@ -88,7 +97,7 @@ export class CredentialStore {
 
   // Return true when a newer account was preserved. Caller holds the lock.
   async clearForClient(clientId: string | undefined): Promise<boolean> {
-    const latest = await this.secrets.get(SECRET_KEY);
+    const latest = await this.secrets.get(this.secretKey);
     let replaced = false;
     try {
       const value = latest ? parseJson(latest) : undefined;
@@ -100,10 +109,10 @@ export class CredentialStore {
       /* Malformed credentials still need local cleanup. */
     }
     if (!replaced) {
-      await this.secrets.delete(SECRET_KEY);
+      await this.secrets.delete(this.secretKey);
     }
     if (clientId) {
-      await this.secrets.delete(REFRESH_KEY_PREFIX + clientId);
+      await this.secrets.delete(this.refreshKeyPrefix + clientId);
     }
     return replaced;
   }

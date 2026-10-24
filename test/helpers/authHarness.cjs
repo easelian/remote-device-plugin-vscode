@@ -4,6 +4,11 @@ const vm = require('node:vm');
 const http = require('node:http');
 const path = require('node:path');
 const realFetch = global.fetch;
+const { resolveDeployment, userDeploymentValue } = require('../../out/authConfig');
+const DEFAULT_NAMESPACE = resolveDeployment().credentialNamespace;
+const TOKEN_KEY = `${DEFAULT_NAMESPACE}.tokens.v1`;
+const AUTH_STATE_KEY = `${DEFAULT_NAMESPACE}.authState.v1`;
+const REFRESH_KEY_PREFIX = `${DEFAULT_NAMESPACE}.refreshKey.v1.`;
 const freshToken = (access_token = 'accepted') => ({
   access_token,
   refresh_token: 'refresh',
@@ -22,6 +27,15 @@ async function until(predicate) {
   }
 }
 function harness(t, options = {}) {
+  const configuration = options.configuration || {};
+  const deployment = resolveDeployment({
+    publicUrl: userDeploymentValue(configuration.publicUrl),
+    mcpPublicUrl: userDeploymentValue(configuration.mcpPublicUrl),
+  });
+  const tokenKey = `${deployment.credentialNamespace}.tokens.v1`;
+  const authStateKey = `${deployment.credentialNamespace}.authState.v1`;
+  const refreshKeyPrefix = `${deployment.credentialNamespace}.refreshKey.v1.`;
+  const configurationListeners = new Set();
   const shared = options.shared || { stored: options.token && JSON.stringify(options.token) };
   shared.secretListeners ||= new Set();
   shared.extraSecrets ||= new Map();
@@ -29,7 +43,7 @@ function harness(t, options = {}) {
     const token = JSON.parse(shared.stored);
     token._refresh_recovery = true;
     shared.stored = JSON.stringify(token);
-    const key = 'rdh.refreshKey.v1.' + token.client_id;
+    const key = refreshKeyPrefix + token.client_id;
     if (!options.noRecoveryKey && !shared.extraSecrets.has(key)) {
       shared.extraSecrets.set(
         key,
@@ -78,6 +92,13 @@ function harness(t, options = {}) {
   };
   const dispose = () => ({ dispose() {} });
   const vscode = {
+    workspace: {
+      getConfiguration: () => ({ inspect: (key) => configuration[key] }),
+      onDidChangeConfiguration(fn) {
+        configurationListeners.add(fn);
+        return { dispose: () => configurationListeners.delete(fn) };
+      },
+    },
     EventEmitter: class {
       event = () => {};
       fire() {}
@@ -201,9 +222,9 @@ function harness(t, options = {}) {
         };
       },
       async get(key) {
-        return key === 'rdh.tokens.v1'
+        return key === tokenKey
           ? shared.stored
-          : key === 'rdh.authState.v1'
+          : key === authStateKey
             ? shared.authState
             : shared.extraSecrets.get(key);
       },
@@ -211,9 +232,9 @@ function harness(t, options = {}) {
         if (options.failStore?.(key, value)) {
           throw new Error('secret storage unavailable');
         }
-        if (key === 'rdh.tokens.v1') {
+        if (key === tokenKey) {
           shared.stored = value;
-        } else if (key === 'rdh.authState.v1') {
+        } else if (key === authStateKey) {
           shared.authState = value;
         } else {
           shared.extraSecrets.set(key, value);
@@ -223,9 +244,9 @@ function harness(t, options = {}) {
         }
       },
       async delete(key) {
-        if (key === 'rdh.tokens.v1') {
+        if (key === tokenKey) {
           shared.stored = undefined;
-        } else if (key === 'rdh.authState.v1') {
+        } else if (key === authStateKey) {
           shared.authState = undefined;
         } else {
           shared.extraSecrets.delete(key);
@@ -361,6 +382,13 @@ function harness(t, options = {}) {
   });
   return {
     disposeSession,
+    refreshKeyPrefix,
+    changeConfiguration(key, value) {
+      configuration[key] = value;
+      for (const fn of configurationListeners) {
+        fn({ affectsConfiguration: (name) => name === `remoteDeviceHub.${key}` });
+      }
+    },
     commands,
     provider,
     chatDeps,
@@ -400,4 +428,12 @@ function harness(t, options = {}) {
   };
 }
 
-module.exports = { harness, freshToken, tick, until };
+module.exports = {
+  harness,
+  freshToken,
+  tick,
+  until,
+  TOKEN_KEY,
+  AUTH_STATE_KEY,
+  REFRESH_KEY_PREFIX,
+};
