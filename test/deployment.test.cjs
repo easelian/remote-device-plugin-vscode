@@ -167,8 +167,8 @@ test('deployment edits remain pinned until reload and workspace-only changes are
   await tick();
   assert.ok(h.messages.some((message) => message.includes('until you reload')));
   await h.commands.get('rdh.signOut')();
-  assert.equal(h.requests.at(-1).url, 'https://mcp.easelian.com/revoke');
-  assert.equal(h.chatDeps.endpoint, 'https://mcp.easelian.com/mcp');
+  assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
+  assert.equal(h.chatDeps.endpoint, MCP_PUBLIC_URL + '/mcp');
 });
 
 test('an in-flight refresh stays on its original deployment after settings change', async (t) => {

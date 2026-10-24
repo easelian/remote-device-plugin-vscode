@@ -14,14 +14,14 @@ Install the extension and reload VS Code. If you need to sign in, the extension 
 
 Standard sign-in, legacy refresh, and sign-out use the service's existing authentication endpoints. Recovery after a lost refresh response requires a Hub version that supports `/token/refresh`.
 
-Browser authorization, client registration, token exchange, refresh, and revocation use the configured MCP origin, which defaults to `https://mcp.easelian.com`. MCP transport and the OAuth resource both use `/mcp` at that origin. The website defaults to `https://easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
+Browser authorization, client registration, token exchange, refresh, and revocation use the configured MCP origin, which defaults to `https://rdh.easelian.com`. MCP transport and the OAuth resource both use `/mcp` at that origin. The website defaults to `https://rdh.easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
 
 Deployment settings belong in **User** or **Remote** settings. Workspace and folder settings cannot redirect credentials:
 
 ```json
 {
-  "remoteDeviceHub.publicUrl": "https://easelian.com",
-  "remoteDeviceHub.mcpPublicUrl": "https://mcp.easelian.com"
+  "remoteDeviceHub.publicUrl": "https://rdh.easelian.com",
+  "remoteDeviceHub.mcpPublicUrl": "https://rdh.easelian.com"
 }
 ```
 

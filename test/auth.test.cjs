@@ -1,3 +1,4 @@
+const { MCP_PUBLIC_URL } = require('../out/deploymentDefaults');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const {
@@ -25,7 +26,7 @@ for (const ssh of [false, true]) {
     const registration = h.requests.find((r) => r.url.endsWith('/register'));
     assert.equal(JSON.parse(registration.init.body).redirect_uris[0], browserRedirect);
     const exchange = h.requests.find((r) => r.url.endsWith('/token'));
-    assert.equal(exchange.url, 'https://mcp.easelian.com/token');
+    assert.equal(exchange.url, MCP_PUBLIC_URL + '/token');
     assert.equal(exchange.init.redirect, 'error');
     const body = new URLSearchParams(exchange.init.body);
     assert.equal(body.get('redirect_uri'), browserRedirect);
@@ -605,7 +606,7 @@ test('sign-out clears local secrets and revokes the saved refresh grant', async 
     onRevoke: async (url, init) => {
       assert.equal(h.token, undefined);
       assert.equal(h.shared.extraSecrets.has(REFRESH_KEY_PREFIX + token.client_id), false);
-      assert.equal(url, 'https://mcp.easelian.com/revoke');
+      assert.equal(url, MCP_PUBLIC_URL + '/revoke');
       assert.equal(init.method, 'POST');
       assert.equal(init.redirect, 'error');
       assert.ok(init.signal);
@@ -649,7 +650,7 @@ test('sign-out revokes an interrupted refresh without replaying its rotation', a
   await until(() => h.logs.some((line) => line.includes('old refresh token will not be replayed')));
   await h.commands.get('rdh.signOut')();
   assert.equal(h.requests.length, 1);
-  assert.equal(h.requests[0].url, 'https://mcp.easelian.com/revoke');
+  assert.equal(h.requests[0].url, MCP_PUBLIC_URL + '/revoke');
   assert.equal(new URLSearchParams(h.requests[0].init.body).get('token'), token.refresh_token);
   assert.equal(h.token, undefined);
 });
