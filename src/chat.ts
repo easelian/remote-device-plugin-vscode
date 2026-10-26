@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { createHash } from 'node:crypto';
 import {
   isRecord,
   isUnknownArray,
@@ -31,11 +32,25 @@ interface Dependencies {
   log?(message: string): void;
 }
 
+interface Discovery {
+  endpoint: string;
+  credentialHash: string;
+  protocol: string;
+  created: number;
+  tools: McpTool[];
+}
+// One short-lived entry per integration instance. No credentials, device data,
+// sessions or conversation history are retained. A refresh/relogin changes the
+// token hash and requires discovery again; every tool call still authenticates.
+const discovery = new WeakMap<Dependencies, Discovery>();
+const DISCOVERY_TTL_MS = 30_000;
+
 // RDH currently exposes stateless Streamable HTTP with JSON responses.
 // Keep this request-scoped: never share MCP sessions or model history across chats.
 export class HubClient {
   private id = 0;
   private protocol = '2025-03-26';
+  private stateless = true;
   constructor(
     private readonly deps: Dependencies,
     private readonly token: vscode.CancellationToken,
@@ -85,6 +100,9 @@ export class HubClient {
         await response.body?.cancel();
         throw new Error(`Remote Device Hub HTTP ${response.status}. The request was not retried.`);
       }
+      if (response.headers.get('Mcp-Session-Id')) {
+        this.stateless = false;
+      }
       if (notification) {
         await response.body?.cancel();
         return {};
@@ -117,10 +135,46 @@ export class HubClient {
         void reader.cancel().catch(() => {});
       }
       return readRpcResult(parseJson(Buffer.concat(chunks).toString('utf8')), id);
+    } catch (error) {
+      discovery.delete(this.deps);
+      throw error;
     } finally {
       clearTimeout(timer);
       cancel.dispose();
     }
+  }
+  async discoverTools(): Promise<McpTool[]> {
+    const credential = await cancellable(() => this.deps.accessToken(), this.token);
+    const credentialHash = createHash('sha256')
+      .update(credential ?? '')
+      .digest('hex');
+    const cached = discovery.get(this.deps);
+    const now = Date.now();
+    if (
+      credential &&
+      cached &&
+      cached.endpoint === this.deps.endpoint &&
+      cached.credentialHash === credentialHash &&
+      now >= cached.created &&
+      now - cached.created < DISCOVERY_TTL_MS
+    ) {
+      this.protocol = cached.protocol;
+      return cached.tools;
+    }
+    discovery.delete(this.deps);
+    await this.initialize();
+    const tools = await this.listTools();
+    const current = await cancellable(() => this.deps.accessToken(), this.token);
+    if (this.stateless && credential && current === credential) {
+      discovery.set(this.deps, {
+        endpoint: this.deps.endpoint,
+        credentialHash,
+        protocol: this.protocol,
+        created: Date.now(),
+        tools,
+      });
+    }
+    return tools;
   }
   async initialize(): Promise<void> {
     const result = await this.request('initialize', {
@@ -222,8 +276,7 @@ export function createChatHandler(
       }
       active.check();
       const hub = new HubClient(deps, active.token);
-      await hub.initialize();
-      const tools = await hub.listTools();
+      const tools = await hub.discoverTools();
       const available = new Map(tools.map((tool) => [tool.name, tool]));
       const modelTools = tools.map((t) => ({
         name: t.name,

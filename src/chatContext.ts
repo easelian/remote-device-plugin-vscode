@@ -13,11 +13,53 @@ export function preview(text: string, limit: number): string {
   return text.slice(0, half) + marker + text.slice(-half);
 }
 
+function equalJson(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+    return false;
+  }
+  if (Array.isArray(left) !== Array.isArray(right)) {
+    return false;
+  }
+  const a = left as Record<string, unknown>;
+  const b = right as Record<string, unknown>;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((key) => Object.hasOwn(b, key) && equalJson(a[key], b[key]))
+  );
+}
+
+function normalizeToolResult(result: { [key: string]: unknown }): { [key: string]: unknown } {
+  const structured = result.structuredContent;
+  if (structured === null || typeof structured !== 'object' || !Array.isArray(result.content)) {
+    return result;
+  }
+  const content = result.content.filter((block: unknown) => {
+    if (block === null || typeof block !== 'object') {
+      return true;
+    }
+    const item = block as Record<string, unknown>;
+    // Annotated blocks may carry additional meaning; retain them in full.
+    if (item.type !== 'text' || typeof item.text !== 'string' || Object.keys(item).length !== 2) {
+      return true;
+    }
+    try {
+      return !equalJson(JSON.parse(item.text), structured);
+    } catch {
+      return true;
+    }
+  });
+  return content.length === result.content.length ? result : { ...result, content };
+}
+
 export function toolResultText(
   result: { [key: string]: unknown },
   model: vscode.LanguageModelChat,
 ): string {
-  const text = JSON.stringify(result);
+  const text = JSON.stringify(normalizeToolResult(result));
   const limit = Math.max(1000, Math.min(24_000, Math.floor(model.maxInputTokens * 1.5)));
   if (text.length <= limit) {
     return text;

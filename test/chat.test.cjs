@@ -219,7 +219,9 @@ function setup(options = {}) {
         require: (name) =>
           name === 'vscode'
             ? vscode
-            : load(require.resolve(path.resolve(path.dirname(filename), name))),
+            : name.startsWith('node:')
+              ? require(name)
+              : load(require.resolve(path.resolve(path.dirname(filename), name))),
       },
       { filename },
     );
@@ -313,6 +315,56 @@ test('manifest and participant register the same @ entry', () => {
   assert.equal(m.contributes.chatParticipants[0].commands, undefined);
   assert.equal(h.participant.followupProvider, undefined);
   assert.equal(context.subscriptions[0], h.participant);
+});
+
+test('stateless discovery is reused only for the same endpoint and credential', async () => {
+  const h = setup();
+  const make = () => new h.exports.HubClient(h.deps, h.token);
+  await make().discoverTools();
+  const first = h.calls.length;
+  assert.equal(first, 3);
+  await make().discoverTools();
+  assert.equal(h.calls.length, first);
+  h.deps.accessToken = async () => 'different-account-token';
+  await make().discoverTools();
+  assert.equal(h.calls.length, first + 3);
+  h.deps.endpoint = 'https://other.test/mcp';
+  await make().discoverTools();
+  assert.equal(h.calls.length, first + 6);
+  assert.equal(JSON.stringify(h.logs).includes('different-account-token'), false);
+});
+
+test('discovery expires and an authentication failure invalidates it without retry', async () => {
+  const options = { now: 1000 };
+  const h = setup(options);
+  const make = () => new h.exports.HubClient(h.deps, h.token);
+  await make().discoverTools();
+  options.now += 30001;
+  await make().discoverTools();
+  assert.equal(h.calls.length, 6);
+  options.httpStatus = 401;
+  await assert.rejects(make().request('tools/call', { name: 'start_process' }), /HTTP 401/);
+  assert.equal(h.calls.length, 7);
+  delete options.httpStatus;
+  await make().discoverTools();
+  assert.equal(h.calls.length, 10);
+});
+
+test('stateful initialization is never cached across chat clients', async () => {
+  const options = {
+    onFetch(body) {
+      if (body.method === 'initialize') {
+        return Response.json(
+          { jsonrpc: '2.0', id: body.id, result: { protocolVersion: '2025-03-26' } },
+          { headers: { 'Mcp-Session-Id': 'session' } },
+        );
+      }
+    },
+  };
+  const h = setup(options);
+  await new h.exports.HubClient(h.deps, h.token).discoverTools();
+  await new h.exports.HubClient(h.deps, h.token).discoverTools();
+  assert.equal(h.calls.length, 6);
 });
 test('natural language performs tool loop using the selected model and returns results', async () => {
   const options = {};
