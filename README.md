@@ -145,7 +145,7 @@ With the Hub's development dependencies installed, also verify sign-out against 
 RDH_SERVER_ROOT=/path/to/remote-device-server
 PYTHONDONTWRITEBYTECODE=1 "$RDH_SERVER_ROOT/.venv/bin/python" -m pytest \
   -q -p no:cacheprovider -c "$RDH_SERVER_ROOT/pyproject.toml" \
-  -o "pythonpath=$RDH_SERVER_ROOT/components/protocol/src $RDH_SERVER_ROOT/src $RDH_SERVER_ROOT $RDH_SERVER_ROOT/tests" \
+  -o "pythonpath=$RDH_SERVER_ROOT/tests/support $RDH_SERVER_ROOT $RDH_SERVER_ROOT/tests" \
   test/server/test_signout.py
 ```
 
