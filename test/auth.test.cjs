@@ -515,7 +515,7 @@ test('recovery follows an expired cached rotation before sending MCP requests', 
   assert.equal(h.opens.length, 0);
 });
 
-test('an indeterminate recovery request never falls back to legacy refresh', async (t) => {
+test('an indeterminate recovery request never falls back to /token refresh', async (t) => {
   let calls = 0;
   const h = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
@@ -534,7 +534,7 @@ test('an indeterminate recovery request never falls back to legacy refresh', asy
   assert.equal(h.opens.length, 0);
 });
 
-test('a definitive first-attempt 404 permits one legacy refresh without a proof', async (t) => {
+test('a definitive first-attempt 404 permits one /token refresh without a proof', async (t) => {
   const h = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
     recovery: true,

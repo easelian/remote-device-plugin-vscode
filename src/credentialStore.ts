@@ -17,7 +17,7 @@ export class CredentialStore {
     private readonly secrets: vscode.SecretStorage,
     namespace: string,
   ) {
-    // Legacy unscoped records have no trustworthy deployment identity. Never
+    // Unscoped records have no trustworthy deployment identity. Never
     // copy them into a configured deployment or use them as a fallback.
     this.secretKey = `${namespace}.tokens.v1`;
     this.authStateKey = `${namespace}.authState.v1`;

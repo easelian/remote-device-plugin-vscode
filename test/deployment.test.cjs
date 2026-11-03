@@ -79,8 +79,8 @@ test('workspace and language overrides cannot select the credential destination'
   );
 });
 
-test('tokens, history, recovery keys and notifications are isolated from other deployments and legacy storage', async () => {
-  const values = new Map([['rdh.tokens.v1', JSON.stringify(freshToken('legacy'))]]);
+test('tokens, history, recovery keys and notifications are isolated from other deployments and unscoped storage', async () => {
+  const values = new Map([['rdh.tokens.v1', JSON.stringify(freshToken('unscoped'))]]);
   const listeners = new Set();
   const secrets = {
     async get(key) {
@@ -125,7 +125,7 @@ test('tokens, history, recovery keys and notifications are isolated from other d
   assert.equal(await a.read(), undefined);
   assert.equal((await b.read()).access_token, 'other');
   assert.equal(await b.recoveryKey('client'), 'secret-b');
-  assert.equal(JSON.parse(values.get('rdh.tokens.v1')).access_token, 'legacy');
+  assert.equal(JSON.parse(values.get('rdh.tokens.v1')).access_token, 'unscoped');
   assert.equal(changes, 2);
 });
 

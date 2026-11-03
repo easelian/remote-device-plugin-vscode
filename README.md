@@ -1,20 +1,27 @@
 # Remote Device Hub for VS Code
 
-Remote Device Hub is a VS Code extension for working with your authorized remote devices through Copilot Chat and MCP. This is an MVP pending review.
+![EaseLian](resources/icon.png)
+
+Remote Device Hub by EaseLian is a VS Code extension for working with your authorized remote devices through Copilot Chat and MCP.
+
+[Remote Device Hub](https://rdh.easelian.com) · [Source](https://github.com/easelian/remote-device-plugin-vscode) · [Report an issue](https://github.com/easelian/remote-device-plugin-vscode/issues)
+
+The extension ID is `easelian.remote-device-hub`. It requires VS Code 1.105 or later.
 
 Install the extension and reload VS Code. If you need to sign in, the extension opens your browser automatically. Once authorized, you can use the device file, shell, and process tools through `@remote-device-hub` or the Remote Device Hub MCP server.
 
-## Why use an extension?
+## Capabilities
 
-- In earlier tests in this project's remote development environment, the built-in MCP OAuth redirect chain through `vscode.dev/redirect` and local port `127.0.0.1:33418` was unreachable.
-- The deployed service uses one-hour access tokens, refresh token rotation, and replay protection. A static token in `mcp.json` cannot refresh itself, and competing refresh clients can invalidate one another's tokens.
-- The extension manages sign-in and token refresh, then supplies the current Authorization header to its MCP server definition. You authorize access in your browser the first time; the extension handles subsequent refreshes.
+- Browser sign-in with OAuth PKCE and automatic token refresh.
+- An authenticated MCP provider for device file, shell, and process tools.
+- A single `@remote-device-hub` chat participant with per-call confirmation or explicitly scoped automatic execution.
+- Local and Remote SSH operation through the workspace extension host.
 
 ## Authentication
 
-Standard sign-in, legacy refresh, and sign-out use the service's existing authentication endpoints. Recovery after a lost refresh response requires a Hub version that supports `/token/refresh`.
+Sign-in uses OAuth with PKCE. Recovery after a lost refresh response requires the Hub's `/token/refresh` endpoint.
 
-Browser authorization, client registration, token exchange, refresh, and revocation use the configured MCP origin, which defaults to `https://rdh.easelian.com`. MCP transport and the OAuth resource both use `/mcp` at that origin. The website defaults to `https://rdh.easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. An older server's definitive 404 on the first refresh request permits a fallback to its standard `/token` endpoint.
+Browser authorization, client registration, token exchange, refresh, and revocation use the configured MCP origin, which defaults to `https://rdh.easelian.com`. MCP transport and the OAuth resource both use `/mcp` at that origin. The website defaults to `https://rdh.easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. A definitive 404 on the first `/token/refresh` request permits a fallback to `/token`.
 
 Deployment settings belong in **User** or **Remote** settings. Workspace and folder settings cannot redirect credentials:
 
@@ -27,16 +34,13 @@ Deployment settings belong in **User** or **Remote** settings. Workspace and fol
 
 Empty values use the packaged defaults from `src/deploymentDefaults.ts`. Both settings accept origins only: no paths, query strings, fragments, or embedded credentials. HTTPS is required; HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development servers. `publicUrl` identifies the website and never selects an OAuth endpoint. `mcpPublicUrl` selects `/authorize`, `/register`, `/token`, `/token/refresh`, `/revoke`, and `/mcp` together.
 
-Reload the window after changing deployment settings. Until reload, existing and new requests in that window continue using the original deployment. Sign out before changing deployments if you also want to revoke the old deployment's grant. Each MCP origin has separate saved tokens, sign-in history, and refresh recovery keys; switching back reuses its saved state. Legacy credentials without a deployment identity are retained but never used or copied to a new deployment, so upgrading from the old fixed endpoint requires signing in again.
-
+Reload the window after changing deployment settings. Until reload, all requests in that window continue using the active deployment. Sign out before changing deployments if you also want to revoke that deployment's grant. Each MCP origin has separate saved tokens, sign-in state, and refresh recovery keys; switching back reuses its saved state. Credentials without a deployment identity are not used for requests or copied into a deployment's storage.
 
 1. The extension runs in the workspace extension host (`extensionKind: ["workspace"]`), which on an SSH host is the remote host. This keeps it in the same extension host as language-model providers, so `@remote-device-hub` can resolve the selected chat model. It starts a temporary callback server on a random `127.0.0.1` port on its host.
 2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
 3. The extension registers an OAuth client dynamically, opens Google sign-in with PKCE, receives the authorization code, and exchanges it for tokens.
 4. Tokens are stored in `SecretStorage`. Refresh is scheduled three minutes before the token expires, including when another window updates the credentials. Credential changes fire `onDidChangeMcpServerDefinitions`.
 5. Before MCP startup, a side-effect-free `ping` checks whether the service accepts the token. A 401 triggers a refresh attempt. Permission errors, service failures, and rejected saved credentials do not automatically open browser sign-in. The MCP server does not start if the credential check fails.
-
-A deployment test on October 12, 2026 confirmed that dynamic client registration accepted `http://127.0.0.1:<port>/callback` with HTTP 201.
 
 ## Startup and sign-in
 
@@ -46,7 +50,7 @@ Before starting the server, VS Code calls `resolveMcpServerDefinition`. The exte
 
 Activation also checks saved credentials with the service. A first installation opens browser sign-in automatically. A shared record prevents other windows or reloads from opening another browser after that attempt is canceled, times out, or fails. Existing credentials are renewed silently; if they cannot be renewed, use `Remote Device Hub: Sign In` to reconnect. MCP startup and chat show a `Sign In` action when saved credentials need attention. Typing `@` alone does not start authentication.
 
-Refresh tokens are single-use. New sign-ins create a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Deployment-scoped credentials without recovery metadata retain the legacy refresh flow until the next explicit sign-in. If a legacy response was lost or the service has already revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
+Refresh tokens are single-use. Sign-in creates a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Credentials without recovery metadata use `/token` and cannot recover a lost refresh response. If recovery is unavailable or the service has revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
 
 **Local VS Code:** Install the VSIX, run `Developer: Reload Window`, and complete authorization in your browser if prompted.
 
@@ -58,7 +62,7 @@ Activation, MCP startup, and manual sign-in share one pending login flow. A host
 
 Refresh is initiated by the extension, not pushed by the server. While the extension host is active, its timer refreshes credentials without chat activity. When VS Code is closed, refresh stops; the next activation can use a valid refresh token even if the one-hour access token has expired. The current Hub gives refresh tokens a 30-day lifetime and also expires the authorization grant 30 days after initial sign-in. Refresh does not extend that grant deadline. The recovery cache's separate 24-hour limit only applies to retrieving the result of an interrupted rotation.
 
-The loopback lock coordinates windows on one host. Hosts using the same VS Code SecretStorage share the private recovery key and derive the same proof for a refresh; the server serializes the operation and returns one rotation result to each host. An old token pair alone cannot derive that proof. Keep older extension versions from running alongside this version: they do not use recovery and can replay consumed tokens.
+The loopback lock coordinates windows on one host. Hosts using the same VS Code SecretStorage share the private recovery key and derive the same proof for a refresh; the server serializes the operation and returns one rotation result to each host. A token pair alone cannot derive that proof. Do not share refresh tokens with clients that lack this recovery mechanism: they can replay consumed tokens.
 
 If VS Code still displays its built-in MCP OAuth prompt, check the server's source in `MCP: List Servers`. A separate entry in `mcp.json`, even with the same name, does not use this extension's sign-in flow. If the service revokes credentials for a running connection, stop and restart that server so the extension can check them again.
 
@@ -70,11 +74,11 @@ If the MCP server does not start:
 - If `chat.mcp.autostart` is set to `never`, start the server manually or change that setting.
 - Run `Remote Device Hub: Show Logs` for extension diagnostics.
 
-The extension's MCP provider is available in the editor window running the extension. Separate Agent Host sessions in the Agents window use their own configuration, including workspace `.mcp.json` and user `~/.copilot/mcp-config.json`. Support for distributing those configurations is still planned.
+The extension's MCP provider is available in the editor window running the extension. Separate Agent Host sessions in the Agents window use their own configuration, including workspace `.mcp.json` and user `~/.copilot/mcp-config.json`. The extension does not manage those configuration files.
 
 ## Use Remote Device Hub in Copilot Chat
 
-Install the latest VSIX and run `Developer: Reload Window`. In Copilot Chat, type `@remote-device-hub` and select it from the suggestions. Then describe your task:
+Install the VSIX and run `Developer: Reload Window`. In Copilot Chat, type `@remote-device-hub` and select it from the suggestions. Then describe your task:
 
 - `@remote-device-hub List my authorized devices.`
 - `@remote-device-hub Check free disk space on device kylin-pc-a5704092.` Replace the example ID with one returned for your account. Shell commands require confirmation in the default execution mode.
@@ -87,7 +91,7 @@ Natural-language requests use the model selected in the chat window. That model 
 
 ### Continuous AI iteration
 
-The participant can repeat inspection, editing, builds, tests, and repairs in one request. It continues until the model finishes, you press Stop, a configured budget is reached, or an error occurs. The previous fixed limits of 12 model turns and 24 tool calls have been removed. Each request uses the model you selected in chat.
+The participant can repeat inspection, editing, builds, tests, and repairs in one request. It continues until the model finishes, you press Stop, a configured budget is reached, or an error occurs. Each request uses the model you selected in chat.
 
 For unattended work, first use `@remote-device-hub List my authorized devices` to obtain the target's exact ID. Then open **Preferences: Open User Settings (JSON)**, or **Preferences: Open Remote Settings (JSON)** in a Remote SSH window, and add:
 
@@ -114,9 +118,9 @@ Allowing `start_process` permits arbitrary shell commands with the remote Agent 
 
 Describe the task and acceptance checks, for example: `@remote-device-hub On device <ID>, repair the failing tests in <project path>. Run the relevant checks after each fix and continue until they pass. Stop if you need a product decision.` The extension keeps the original request, recent complete tool exchanges, and bounded excerpts from earlier results within the selected model's input limit. Large outputs are explicitly marked as partial so the model can read narrower ranges. Excerpts are historical data; they do not replace checking current device state.
 
-Keep VS Code and its extension host running. Closing or reloading the window stops the loop; this version does not resume a task automatically afterward. A remote process already started may continue running. Inspect its state before starting it again. `Remote Device Hub: Show Logs` records run IDs, tool names, device IDs, outcomes, and stop reasons without logging commands, file contents, or credentials.
+Keep VS Code and its extension host running. Closing or reloading the window stops the loop; the extension does not resume a task automatically afterward. A remote process already started may continue running. Inspect its state before starting it again. `Remote Device Hub: Show Logs` records run IDs, tool names, device IDs, outcomes, and stop reasons without logging commands, file contents, or credentials.
 
-The chat client targets RDH's stateless Streamable HTTP configuration with JSON responses; it is not a general-purpose MCP client. Tests cover simulated models, authentication responses, and MCP requests. Completion suggestions and actual model calls still need verification in the Copilot client.
+The chat client targets RDH's stateless Streamable HTTP configuration with JSON responses; it is not a general-purpose MCP client. Automated tests use simulated models, authentication responses, and MCP requests. Verify completion suggestions and model calls in the Copilot client when testing a release.
 
 ## Development
 
@@ -127,9 +131,10 @@ is two spaces, single quotes, semicolons, trailing commas, and one statement per
 line. Type-only imports are explicit; explicit `any` and `@ts-ignore` are rejected.
 Generated files and third-party code are outside the formatting scope.
 
+Use Node.js 22, as configured in the CI and release workflows.
 
 ```bash
-npm install
+npm ci
 npm run compile     # Or use npm run watch during development
 npm test            # Requires permission to listen on temporary 127.0.0.1 ports
 npm run package:vsix
@@ -166,32 +171,23 @@ The integration tests cover ordinary sign-out, rotation before sign-out, lost re
 | `.vscode/launch.json` | F5 launch configuration |
 | `package.json` | Extension metadata, MCP provider, chat participant, and commands |
 
-## Planned work
+## Brand assets and license
 
-- [ ] Confirm the publisher, extension name, and versioning policy. The current identifiers are `xdistribute` and `remote-device-hub`.
-- [ ] Add an icon and localization support. Documentation, comments, and UI text currently use American English.
-- [ ] Test an actual Remote SSH session with a client-side browser and a remote extension host, including the `asExternalUri` tunnel.
-- [ ] Publish VSIX packages through the RDH service's `downloads` directory, Marketplace, or Open VSX.
-- [ ] Consider a server-side `device_code` flow for environments without a browser, including CI.
-- [ ] Provide `.mcp.json` and `~/.copilot/mcp-config.json` configuration for Agent Host sessions.
-- [ ] Add a device tree, status bar integration, and per-device actions in a later release.
+The extension icon is a 256 × 256 PNG exported from the [Remote Device Hub universal product master](https://github.com/easelian/brand/blob/main/products/remote-device-hub/icons/remote-device-hub.svg). Its fixed charcoal badge and off-white border, desktop display, lock, and two-tooth key use two solid colors on both light and dark surfaces; only the rounded outer corners are transparent. EaseLian is the publisher. The Marketplace banner uses the product background color, `#1D1D1F`.
+
+To regenerate the icon from a sibling `brand` checkout:
+
+```sh
+inkscape ../brand/products/remote-device-hub/icons/remote-device-hub.svg \
+  --export-area-page --export-width=256 --export-height=256 \
+  --export-background-opacity=0 --export-filename=resources/icon.png
+```
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
 
 ## Known limitations
 
+- Documentation, comments, and UI text use American English; localization is not provided.
 - Credential checks target the current stateless HTTP MCP service. An existing connection is not guaranteed to pick up refreshed credentials immediately. Restart MCP if the service revokes its token.
 - Workspaces in the same window share stored credentials. Refresh coordination is scoped to the extension host.
 - The `@remote-device-hub` chat participant can only use chat models whose provider extension runs in the same extension host. `extensionKind: ["workspace"]` keeps the extension alongside model providers in remote windows; a model from a provider in another extension host fails with "The selected model ... is not available."
-
-## Build history
-
-- `remote-device-hub-0.0.14.vsix`: Added explicitly scoped automatic chat execution, configurable iteration budgets, cancellation during waits, bounded context, and run metadata logs.
-- `remote-device-hub-0.0.9.vsix`: Updated documentation, comments, UI text, model instructions, and test fixtures to American English.
-- `remote-device-hub-0.0.8.vsix`: Kept one `@remote-device-hub` entry point, removed slash commands and follow-up buttons, and added natural-language examples to the input hint.
-- `remote-device-hub-0.0.7.vsix`: Added clearer input guidance, `/help`, empty-request guidance, and suggested follow-ups. These additional controls were removed in 0.0.8.
-- `remote-device-hub-0.0.6.vsix`: Added `@remote-device-hub` and `/devices`, sharing authentication and supporting model tool calls, confirmation, and cancellation.
-- `remote-device-hub-0.0.5.vsix`: Added server-side credential checks after reload, logged why sign-in was skipped, and shared pending checks with MCP startup.
-- `remote-device-hub-0.0.4.vsix`: Added automatic browser sign-in, checks for rejected credentials before startup, shared sign-in requests, cancellation, timeouts, and support for local execution and SSH callback forwarding.
-- `remote-device-hub-0.0.3.vsix`: Built on October 12, 2026 using npm. Added the output channel and `Remote Device Hub: Show Logs`, provider error handling and logging, and startup troubleshooting documentation.
-- `remote-device-hub-0.0.2.vsix`: Built on October 12, 2026. Added a sign-in prompt on activation when no credentials were available. Installation was verified with `code-server --install-extension`.
-
-The recorded build environment uses npm 10.9.0 and Node.js 22.11.0. Standard npm installation, compilation, and packaging are available. The earlier workaround using an npm mirror and manual packaging is no longer needed.

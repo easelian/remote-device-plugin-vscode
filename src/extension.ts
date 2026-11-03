@@ -5,7 +5,7 @@ import { resolveDeployment, userDeploymentValue, type DeploymentConfig } from '.
 import { registerChat } from './chat';
 import { isRecord, type TokenSet } from './boundaries';
 
-const PROVIDER_ID = 'xdistribute.remote-device-hub';
+const PROVIDER_ID = 'easelian.remote-device-hub';
 const SERVER_LABEL = 'Remote Device Hub';
 
 export function activate(context: vscode.ExtensionContext): void {

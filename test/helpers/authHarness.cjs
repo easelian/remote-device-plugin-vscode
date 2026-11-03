@@ -329,7 +329,7 @@ function harness(t, options = {}) {
       throw new Error(`unexpected fetch: ${url}`);
     },
   });
-  // Load every extracted authentication module into the same host simulation.
+  // Load every authentication module into the same host simulation.
   // Each harness gets an isolated CommonJS cache, while real loopback locks
   // continue coordinating independent hosts using their native timers.
   const modules = new Map();

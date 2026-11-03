@@ -519,7 +519,7 @@ function assertCompleteExchanges(messages) {
   }
 }
 
-test('automatic mode completes 35 iterations without popups or the old 12/24 limits', async () => {
+test('automatic mode completes 35 iterations without confirmation prompts', async () => {
   const options = { config: automatic() };
   const h = setup(options);
   options.responses = Array.from({ length: 35 }, (_, i) => [

@@ -18,7 +18,7 @@ import {
   RunStopped,
 } from './chatRun';
 
-export const CHAT_ID = 'xdistribute.remote-device-hub.chat';
+export const CHAT_ID = 'easelian.remote-device-hub.chat';
 const INPUT_HINT =
   'Describe what you want to do on a remote device. For example: "List my authorized devices" or "Check free disk space on device <device ID>."';
 let nextRunId = 0;
@@ -180,7 +180,7 @@ export class HubClient {
     const result = await this.request('initialize', {
       protocolVersion: this.protocol,
       capabilities: {},
-      clientInfo: { name: 'remote-device-hub-chat', version: '0.0.14' },
+      clientInfo: { name: 'remote-device-hub-chat', version: '0.0.15' },
     });
     if (
       typeof result.protocolVersion !== 'string' ||

@@ -2,9 +2,23 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.14",
-  "publisher": "xdistribute",
-  "license": "UNLICENSED",
+  "version": "0.0.22",
+  "publisher": "easelian",
+  "author": "EaseLian",
+  "license": "Apache-2.0",
+  "icon": "resources/icon.png",
+  "homepage": "https://rdh.easelian.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/easelian/remote-device-plugin-vscode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/easelian/remote-device-plugin-vscode/issues"
+  },
+  "galleryBanner": {
+    "color": "#1D1D1F",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.105.0"
   },
@@ -24,7 +38,7 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onChatParticipant:xdistribute.remote-device-hub.chat"
+    "onChatParticipant:easelian.remote-device-hub.chat"
   ],
   "contributes": {
     "configuration": {
@@ -100,7 +114,7 @@
     },
     "chatParticipants": [
       {
-        "id": "xdistribute.remote-device-hub.chat",
+        "id": "easelian.remote-device-hub.chat",
         "name": "remote-device-hub",
         "fullName": "Remote Device Hub",
         "description": "Describe a remote device task, such as \"List my authorized devices\" or \"Check free disk space on a device\"",
@@ -109,7 +123,7 @@
     ],
     "mcpServerDefinitionProviders": [
       {
-        "id": "xdistribute.remote-device-hub",
+        "id": "easelian.remote-device-hub",
         "label": "Remote Device Hub"
       }
     ],
@@ -141,7 +155,7 @@
     "test": "npm run compile && node --test test/*.test.cjs",
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
-    "package:vsix": "vsce package --allow-missing-repository --no-dependencies",
+    "package:vsix": "vsce package --no-dependencies",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",

@@ -40,8 +40,8 @@ export class RunStopped extends Error {
 export function readChatPolicy(): ChatPolicy {
   const config = vscode.workspace.getConfiguration(CHAT_SETTINGS);
   // Permission grants must never come from a repository the model can edit.
-  // Machine-scoped settings live in User/Remote settings. Ignore workspace values
-  // explicitly as well, including settings left behind by older versions.
+  // Machine-scoped settings live in User/Remote settings. Reject workspace and
+  // folder values explicitly when inspecting permission settings.
   const read = (name: string, fallback: unknown): unknown => {
     const value = config.inspect<unknown>(name);
     return value?.globalValue ?? value?.defaultValue ?? fallback;

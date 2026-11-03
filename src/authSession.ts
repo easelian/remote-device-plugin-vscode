@@ -345,14 +345,14 @@ export class AuthSession implements vscode.Disposable {
         });
       let resp = await send(requestId ? this.deployment.refreshUri : this.deployment.tokenUri);
       if (requestId && resp.status === 404 && t._refresh_state !== 'pending') {
-        // Older servers have no recovery endpoint. A definitive 404 on the first
-        // request permits legacy fallback; an indeterminate request never does.
+        // A definitive 404 on the first recovery request permits /token fallback;
+        // an indeterminate request never does.
         await resp.body?.cancel();
         delete pending._refresh_request_id;
         await this.store.save(pending);
         body.delete('rdh_refresh_id');
         resp = await send(this.deployment.tokenUri);
-        this.log.debug('server has no refresh recovery endpoint; used legacy refresh');
+        this.log.debug('server has no refresh recovery endpoint; used /token refresh');
       }
       const responseRequestId = resp.headers.get('x-request-id');
       this.log.info(
