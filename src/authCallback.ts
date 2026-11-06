@@ -6,11 +6,17 @@ interface CallbackResult {
   state?: string | undefined;
   error?: string | undefined;
   errorDescription?: string | undefined;
+  issuer?: string | undefined;
 }
 
 export function startCallbackServer(): Promise<{
   port: number;
-  waitForCode: (expectedState: string, timeoutMs: number) => Promise<CallbackResult>;
+  waitForCode: (
+    expectedState: string,
+    timeoutMs: number,
+    expectedIssuer?: string,
+    requireIssuer?: boolean,
+  ) => Promise<CallbackResult>;
   close: () => void;
 }> {
   return new Promise((resolveServer, rejectServer) => {
@@ -35,6 +41,7 @@ export function startCallbackServer(): Promise<{
         state: q.get('state') ?? undefined,
         error: q.get('error') ?? undefined,
         errorDescription: q.get('error_description') ?? undefined,
+        issuer: q.get('iss') ?? undefined,
       };
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(
@@ -54,7 +61,7 @@ export function startCallbackServer(): Promise<{
       }
       resolveServer({
         port: addr.port,
-        waitForCode: (expectedState, timeoutMs) =>
+        waitForCode: (expectedState, timeoutMs, expectedIssuer, requireIssuer = false) =>
           new Promise<CallbackResult>((res) => {
             timer = setTimeout(
               () => res({ error: 'timeout', errorDescription: 'no callback received' }),
@@ -62,10 +69,17 @@ export function startCallbackServer(): Promise<{
             );
             void resultPromise.then((r) => {
               clearTimeout(timer);
-              if (r.error || r.state === expectedState) {
-                res(r);
-              } else {
+              if (r.state !== expectedState) {
                 res({ error: 'state_mismatch', errorDescription: 'state validation failed' });
+              } else if (
+                !r.error &&
+                expectedIssuer &&
+                ((r.issuer !== undefined && r.issuer !== expectedIssuer) ||
+                  (requireIssuer && r.issuer === undefined))
+              ) {
+                res({ error: 'issuer_mismatch', errorDescription: 'issuer validation failed' });
+              } else {
+                res(r);
               }
             });
           }),

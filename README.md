@@ -21,7 +21,9 @@ Install the extension and reload VS Code. If you need to sign in, the extension 
 
 Sign-in uses OAuth with PKCE. Recovery after a lost refresh response requires the Hub's `/token/refresh` endpoint.
 
-Browser authorization, client registration, token exchange, refresh, and revocation use the configured MCP origin, which defaults to `https://rdh.easelian.com`. MCP transport and the OAuth resource both use `/mcp` at that origin. The website defaults to `https://rdh.easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. A definitive 404 on the first `/token/refresh` request permits a fallback to `/token`.
+MCP transport and the OAuth resource use `/mcp` at the configured MCP origin, which defaults to `https://rdh.easelian.com`. The extension discovers the authorization server and its endpoints from the MCP resource metadata. The website also defaults to `https://rdh.easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. A definitive 404 on the first recovery request permits a fallback to the advertised token endpoint.
+
+The resource metadata must identify one origin-based issuer. The authorization, registration, token, refresh-recovery, and revocation endpoints, when advertised, must use that issuer's origin.
 
 Deployment settings belong in **User** or **Remote** settings. Workspace and folder settings cannot redirect credentials:
 
@@ -32,13 +34,13 @@ Deployment settings belong in **User** or **Remote** settings. Workspace and fol
 }
 ```
 
-Empty values use the packaged defaults from `src/deploymentDefaults.ts`. Both settings accept origins only: no paths, query strings, fragments, or embedded credentials. HTTPS is required; HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development servers. `publicUrl` identifies the website and never selects an OAuth endpoint. `mcpPublicUrl` selects `/authorize`, `/register`, `/token`, `/token/refresh`, `/revoke`, and `/mcp` together.
+Empty values use the packaged defaults from `src/deploymentDefaults.ts`. Both settings accept origins only: no paths, query strings, fragments, or embedded credentials. HTTPS is required; HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development servers. `publicUrl` identifies the website. `mcpPublicUrl` selects the MCP resource, which identifies the authorization server.
 
-Reload the window after changing deployment settings. Until reload, all requests in that window continue using the active deployment. Sign out before changing deployments if you also want to revoke that deployment's grant. Each MCP origin has separate saved tokens, sign-in state, and refresh recovery keys; switching back reuses its saved state. Credentials without a deployment identity are not used for requests or copied into a deployment's storage.
+Reload the window after changing deployment settings. Until reload, all requests in that window continue using the active deployment. Sign out before changing deployments if you also want to revoke that deployment's grant. Each MCP origin has separate saved tokens, sign-in state, and refresh recovery keys. Saved credentials are also bound to the discovered issuer; if the issuer changes or the saved credentials do not identify one, use **Remote Device Hub: Sign In** to reconnect. The extension does not send those credentials to the new issuer.
 
 1. The extension runs in the workspace extension host (`extensionKind: ["workspace"]`), which on an SSH host is the remote host. This keeps it in the same extension host as language-model providers, so `@remote-device-hub` can resolve the selected chat model. It starts a temporary callback server on a random `127.0.0.1` port on its host.
 2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
-3. The extension registers an OAuth client dynamically, opens Google sign-in with PKCE, receives the authorization code, and exchanges it for tokens.
+3. The extension registers an OAuth client dynamically with the discovered Auth service, opens sign-in with PKCE, validates the callback, and exchanges the authorization code for tokens. The Auth service must allow the callback URI, including any URI produced by Remote SSH forwarding.
 4. Tokens are stored in `SecretStorage`. Refresh is scheduled three minutes before the token expires, including when another window updates the credentials. Credential changes fire `onDidChangeMcpServerDefinitions`.
 5. Before MCP startup, a side-effect-free `ping` checks whether the service accepts the token. A 401 triggers a refresh attempt. Permission errors, service failures, and rejected saved credentials do not automatically open browser sign-in. The MCP server does not start if the credential check fails.
 
@@ -144,7 +146,7 @@ Press `F5` to launch the Extension Development Host. If you are not signed in, t
 
 TypeScript enables `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes`. JSON, saved credentials, OAuth responses, and MCP messages enter through `src/boundaries.ts` as `unknown` and are checked before use. MCP schema checks cover the fields consumed by the extension; they are not a full JSON Schema validator.
 
-With the Hub's development dependencies installed, also verify sign-out against a disposable local Hub using the compiled extension:
+With the Hub's development dependencies installed and `RDH_TEST_POSTGRES_DSN` pointing to a disposable PostgreSQL database, also verify sign-out against a disposable local Hub using the compiled extension:
 
 ```sh
 RDH_SERVER_ROOT=/path/to/remote-device-server
@@ -154,7 +156,9 @@ PYTHONDONTWRITEBYTECODE=1 "$RDH_SERVER_ROOT/.venv/bin/python" -m pytest \
   test/server/test_signout.py
 ```
 
-The integration tests cover ordinary sign-out, rotation before sign-out, lost refresh responses, and lost revocation responses. They check that the entire authorization is revoked, cached recovery cannot restore it, and other connections remain valid.
+The integration tests use the Hub's reference service and simulated discovery metadata. They cover ordinary sign-out, rotation before sign-out, lost refresh responses, and lost revocation responses. They check that the entire authorization is revoked, cached recovery cannot restore it, and other connections remain valid.
+
+For the split-service integration test, set `RDH_TEST_RUST_AUTH` and `RDH_TEST_RUST_MIGRATE` to matching Server binaries and run the same pytest command with `test/server/test_split_auth.py`. It uses the real Auth service and a simulated MCP Gate to verify discovery, first sign-in, refresh, and revocation.
 
 ## Project layout
 

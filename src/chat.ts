@@ -297,6 +297,8 @@ export function createChatHandler(
           'Report success only after the tool succeeds. Do not treat a remote device as the local workspace. ' +
           "Keep working toward the user's acceptance criteria: inspect, edit, build, test, and repair as needed. " +
           'After starting a process, use its job ID to read its status and output; starting it is not proof of completion. ' +
+          'For a supported authorized change on a device advertising operation receipts, use prepare_operation and pass its returned operation_id to the change. ' +
+          'After an uncertain outcome, use get_operation_status or list_operations for receipts, or get_call_status or list_calls for ordinary calls; correlate results before attributing them to the call. Never invent an operation ID. ' +
           'Stop when the task is complete, permission is denied, or user input is necessary. Never repeat an uncertain side effect without checking its state. ' +
           (policy.executionMode === 'automatic'
             ? `Automatic mode permits device operations only on these exact device IDs: ${JSON.stringify(policy.automaticDevices)}. ` +

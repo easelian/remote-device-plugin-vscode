@@ -22,6 +22,8 @@ export interface TokenSet {
   expires_in?: number;
   _got_at?: number;
   client_id: string;
+  // Only credentials tied to the discovered issuer may be sent or refreshed.
+  _issuer?: string;
   // A surviving pending marker prevents unsafe refresh-token replay.
   _refresh_state?: 'pending' | 'rejected';
   _refresh_request_id?: string;
@@ -35,6 +37,7 @@ export function isTokenSet(value: unknown): value is TokenSet {
   return (
     nonemptyString(value.access_token) &&
     nonemptyString(value.client_id) &&
+    (value._issuer === undefined || nonemptyString(value._issuer)) &&
     (value.refresh_token === undefined || nonemptyString(value.refresh_token)) &&
     (value._got_at === undefined ||
       (typeof value._got_at === 'number' &&

@@ -75,7 +75,7 @@ export class CredentialStore {
 
   // Sign-out must revoke expired and pending tokens without refreshing first.
   async readRevocation(): Promise<
-    { clientId: string; credential?: RevocationCredential } | undefined
+    { clientId: string; issuer?: string; credential?: RevocationCredential } | undefined
   > {
     const raw = await this.secrets.get(this.secretKey);
     if (!raw) {
@@ -89,6 +89,7 @@ export class CredentialStore {
     const token = hasRefresh ? stored.refresh_token : stored.access_token;
     return {
       clientId: stored.client_id,
+      ...(typeof stored._issuer === 'string' ? { issuer: stored._issuer } : {}),
       ...(typeof token === 'string' && token
         ? { credential: { token, token_type_hint: hasRefresh ? 'refresh_token' : 'access_token' } }
         : {}),

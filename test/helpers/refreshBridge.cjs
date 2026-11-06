@@ -16,6 +16,7 @@ async function main() {
         token: input.token,
         recoveryKey: input.recoveryKey,
       };
+  const authOrigin = new URL(input.authServer || input.server).origin;
   const h = harness(
     {
       after(fn) {
@@ -24,12 +25,17 @@ async function main() {
     },
     {
       configuration: { mcpPublicUrl: { globalValue: input.server } },
-      token: saved.token,
+      token: { ...saved.token, _issuer: `${authOrigin}/` },
+      issuer: `${authOrigin}/`,
+      realDiscovery: Boolean(input.realDiscovery),
       recovery: true,
       recoveryKey: saved.recoveryKey,
       transport: async (uri, init) => {
         const path = new URL(uri).pathname;
-        const response = await fetch(new URL(path, input.server), init);
+        const response = await fetch(
+          new URL(path, path === '/mcp' ? input.server : authOrigin),
+          init,
+        );
         if (path === '/token/refresh' && response.ok && input.signOut) {
           const issued = await response.clone().json();
           issuedHashes = {

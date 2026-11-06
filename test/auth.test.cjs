@@ -11,6 +11,140 @@ const {
 } = require('./helpers/authHarness.cjs');
 const realFetch = global.fetch;
 
+test('split-issuer discovery routes sign-in and revocation to the discovered Auth service', async (t) => {
+  const issuer = 'https://auth.example/';
+  const h = harness(t, { issuer });
+  await until(() => h.token);
+  assert.equal(h.token._issuer, issuer);
+  assert.equal(h.opens[0].origin, 'https://auth.example');
+  assert.equal(h.opens[0].searchParams.get('resource'), `${MCP_PUBLIC_URL}/mcp`);
+  assert.equal(
+    h.requests.find((request) => request.url.endsWith('/register')).url,
+    `${issuer}register`,
+  );
+  assert.equal(h.requests.find((request) => request.url.endsWith('/token')).url, `${issuer}token`);
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.requests.at(-1).url, `${issuer}revoke`);
+  assert.equal(h.discoveryRequests.length, 2);
+  assert.ok(h.discoveryRequests.every(({ init }) => !init.headers.Authorization));
+});
+
+test('a changed issuer does not receive legacy refresh or revocation credentials', async (t) => {
+  const token = {
+    ...freshToken('legacy'),
+    _got_at: 0,
+    _refresh_state: 'pending',
+    _refresh_request_id: 'a'.repeat(43),
+  };
+  const h = harness(t, { token, issuer: 'https://auth.example/' });
+  await until(() => h.logs.some((line) => line.includes('authorization_changed')));
+  assert.deepEqual(h.token, token);
+  assert.equal(h.requests.length, 0);
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.token, undefined);
+  assert.equal(h.requests.length, 0);
+  assert.ok(h.messages.some((message) => message.includes('revocation could not be confirmed')));
+});
+
+test('split-issuer refresh uses the advertised recovery endpoint and preserves its issuer', async (t) => {
+  const issuer = 'https://auth.example/';
+  const h = harness(t, {
+    issuer,
+    token: { ...freshToken(), _issuer: issuer, _got_at: 0 },
+    recovery: true,
+    refreshOk: true,
+  });
+  await until(() => h.requests.some((request) => request.url.endsWith('/token/refresh')));
+  const request = h.requests.find((entry) => entry.url.endsWith('/token/refresh'));
+  assert.equal(request.url, `${issuer}token/refresh`);
+  assert.match(new URLSearchParams(request.init.body).get('rdh_refresh_id'), /^[A-Za-z0-9_-]{43}$/);
+  await until(() => h.token && !h.token._refresh_state);
+  assert.equal(h.token._issuer, issuer);
+});
+
+test('an uncertain refresh is never replayed when recovery is no longer advertised', async (t) => {
+  const issuer = 'https://auth.example/';
+  const token = {
+    ...freshToken(),
+    _issuer: issuer,
+    _got_at: 0,
+    _refresh_state: 'pending',
+    _refresh_request_id: 'a'.repeat(43),
+    _refresh_recovery: true,
+  };
+  const h = harness(t, {
+    issuer,
+    token,
+    authMetadata: {
+      issuer,
+      authorization_endpoint: `${issuer}authorize`,
+      registration_endpoint: `${issuer}register`,
+      token_endpoint: `${issuer}token`,
+    },
+  });
+  await until(() => h.logs.some((line) => line.includes('refresh_outcome_unknown')));
+  assert.deepEqual(h.token, token);
+  assert.equal(h.requests.filter((request) => request.url.includes('/token')).length, 0);
+});
+
+test('explicit sign-in replaces credentials whose issuer is missing', async (t) => {
+  const token = freshToken();
+  delete token._issuer;
+  const h = harness(t, { token, issuer: 'https://auth.example/' });
+  await until(() => h.logs.some((line) => line.includes('authorization_changed')));
+  assert.equal(h.requests.length, 0);
+  await h.commands.get('rdh.signIn')();
+  assert.equal(h.token._issuer, 'https://auth.example/');
+  assert.equal(h.opens.length, 1);
+});
+
+test('a sign-out during discovery prevents the stale token being sent to MCP', async (t) => {
+  let releaseDiscovery;
+  const h = harness(t, {
+    token: freshToken(),
+    beforeAuthMetadata: () =>
+      new Promise((resolve) => {
+        releaseDiscovery = resolve;
+      }),
+  });
+  await until(() => releaseDiscovery);
+  const signOut = h.commands.get('rdh.signOut')();
+  await until(() => !h.token);
+  releaseDiscovery();
+  await signOut;
+  await tick();
+  assert.equal(h.requests.filter((request) => request.url.endsWith('/mcp')).length, 0);
+  assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 0);
+  assert.equal(h.token, undefined);
+});
+
+for (const callbackIssuer of [null, 'https://wrong.example/']) {
+  test(`authorization code is not exchanged when callback issuer is ${callbackIssuer}`, async (t) => {
+    const h = harness(t, { issuer: 'https://auth.example/', callbackIssuer });
+    await until(() => h.messages.some((message) => message.includes('issuer_mismatch')));
+    assert.equal(h.token, undefined);
+    assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 0);
+  });
+}
+
+test('optional callback issuer may be absent, but a present issuer must match', async (t) => {
+  const issuer = 'https://auth.example/';
+  const authMetadata = {
+    issuer,
+    authorization_endpoint: `${issuer}authorize`,
+    registration_endpoint: `${issuer}register`,
+    token_endpoint: `${issuer}token`,
+    authorization_response_iss_parameter_supported: false,
+  };
+  const allowed = harness(t, { issuer, authMetadata, callbackIssuer: null });
+  await until(() => allowed.token);
+  assert.equal(allowed.token._issuer, issuer);
+
+  const rejected = harness(t, { issuer, authMetadata, callbackIssuer: 'https://other.example/' });
+  await until(() => rejected.messages.some((message) => message.includes('issuer_mismatch')));
+  assert.equal(rejected.requests.filter((request) => request.url.endsWith('/token')).length, 0);
+});
+
 for (const ssh of [false, true]) {
   test(`activation automatically authorizes via ${ssh ? 'forwarded SSH callback' : 'local callback'}`, async (t) => {
     const h = harness(t, { ssh });

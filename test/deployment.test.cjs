@@ -11,18 +11,15 @@ const { PUBLIC_URL, MCP_PUBLIC_URL } = require('../out/deploymentDefaults');
 const { CredentialStore } = require('../out/credentialStore');
 const { harness, freshToken, until, tick } = require('./helpers/authHarness.cjs');
 
-test('default deployment uses a single MCP authority for all OAuth and transport routes', () => {
+test('default deployment identifies the MCP resource without assuming its OAuth authority', () => {
   const config = resolveDeployment();
   assert.equal(config.publicUrl, PUBLIC_URL);
-  assert.equal(config.authBase, MCP_PUBLIC_URL);
+  assert.equal(config.mcpOrigin, MCP_PUBLIC_URL);
   for (const [key, path] of Object.entries({
     mcpUri: '/mcp',
     resource: '/mcp',
-    tokenUri: '/token',
-    refreshUri: '/token/refresh',
-    revokeUri: '/revoke',
   })) {
-    assert.equal(config[key], config.authBase + path);
+    assert.equal(config[key], config.mcpOrigin + path);
   }
 });
 
@@ -38,7 +35,7 @@ test('deployment identity is canonical and depends on the credential recipient o
     a.credentialNamespace,
     resolveDeployment({ mcpPublicUrl: 'https://mcp.example:9443' }).credentialNamespace,
   );
-  assert.equal(resolveDeployment({ mcpPublicUrl: '' }).authBase, resolveDeployment().authBase);
+  assert.equal(resolveDeployment({ mcpPublicUrl: '' }).mcpOrigin, resolveDeployment().mcpOrigin);
 });
 
 test('deployment rejects ambiguous or unsafe credential destinations', () => {
@@ -57,7 +54,7 @@ test('deployment rejects ambiguous or unsafe credential destinations', () => {
     assert.throws(() => resolveDeployment({ publicUrl: value }));
   }
   for (const value of ['http://localhost:8090', 'http://127.0.0.1:8090', 'http://[::1]:8090']) {
-    assert.equal(resolveDeployment({ mcpPublicUrl: value }).authBase, value);
+    assert.equal(resolveDeployment({ mcpPublicUrl: value }).mcpOrigin, value);
   }
 });
 
@@ -175,7 +172,7 @@ test('an in-flight refresh stays on its original deployment after settings chang
   let finish;
   const h = harness(t, {
     configuration: { mcpPublicUrl: { globalValue: 'https://first.example' } },
-    token: { ...freshToken(), _got_at: 0 },
+    token: { ...freshToken(), _issuer: 'https://first.example/', _got_at: 0 },
     recovery: true,
     onRefresh: () =>
       new Promise((resolve) => {

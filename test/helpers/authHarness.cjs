@@ -5,6 +5,7 @@ const http = require('node:http');
 const path = require('node:path');
 const realFetch = global.fetch;
 const { resolveDeployment, userDeploymentValue } = require('../../out/authConfig');
+const { MCP_PUBLIC_URL } = require('../../out/deploymentDefaults');
 const DEFAULT_NAMESPACE = resolveDeployment().credentialNamespace;
 const TOKEN_KEY = `${DEFAULT_NAMESPACE}.tokens.v1`;
 const AUTH_STATE_KEY = `${DEFAULT_NAMESPACE}.authState.v1`;
@@ -13,6 +14,7 @@ const freshToken = (access_token = 'accepted') => ({
   access_token,
   refresh_token: 'refresh',
   client_id: 'client',
+  _issuer: `${MCP_PUBLIC_URL}/`,
   _got_at: Date.now() / 1000,
   expires_in: 3600,
 });
@@ -35,6 +37,7 @@ function harness(t, options = {}) {
   const tokenKey = `${deployment.credentialNamespace}.tokens.v1`;
   const authStateKey = `${deployment.credentialNamespace}.authState.v1`;
   const refreshKeyPrefix = `${deployment.credentialNamespace}.refreshKey.v1.`;
+  const issuer = options.issuer || `${deployment.mcpOrigin}/`;
   const configurationListeners = new Set();
   const shared = options.shared || { stored: options.token && JSON.stringify(options.token) };
   shared.secretListeners ||= new Set();
@@ -57,6 +60,7 @@ function harness(t, options = {}) {
   const messages = [];
   const opens = [];
   const requests = [];
+  const discoveryRequests = [];
   const logs = [];
   const relays = [];
   const callbackUris = [];
@@ -188,7 +192,9 @@ function harness(t, options = {}) {
         if (options.openFalse) {
           return false;
         }
-        if (!options.hold) {
+        if (options.browserFlow) {
+          await options.browserFlow(uri);
+        } else if (!options.hold) {
           await callback(uri);
         }
         return true;
@@ -205,6 +211,9 @@ function harness(t, options = {}) {
     const target = new URL(uri.searchParams.get('redirect_uri'));
     target.searchParams.set('code', 'test-code');
     target.searchParams.set('state', uri.searchParams.get('state'));
+    if (options.callbackIssuer !== null) {
+      target.searchParams.set('iss', options.callbackIssuer || issuer);
+    }
     const res = await realFetch(target);
     assert.equal(res.status, 200);
     await res.text();
@@ -274,6 +283,45 @@ function harness(t, options = {}) {
       : setTimeout,
     clearTimeout: clock ? (id) => timers.delete(id) : clearTimeout,
     fetch: async (url, init) => {
+      if (url === `${deployment.mcpOrigin}/.well-known/oauth-protected-resource/mcp`) {
+        discoveryRequests.push({ url, init });
+        if (options.realDiscovery) {
+          return realFetch(url, init);
+        }
+        return Response.json(
+          options.resourceMetadata || {
+            resource: deployment.resource,
+            authorization_servers: [issuer],
+            scopes_supported: ['devices:control'],
+          },
+        );
+      }
+      if (url === `${new URL(issuer).origin}/.well-known/oauth-authorization-server`) {
+        discoveryRequests.push({ url, init });
+        if (options.realDiscovery) {
+          return realFetch(url, init);
+        }
+        if (options.beforeAuthMetadata) {
+          await options.beforeAuthMetadata();
+        }
+        const base = new URL(issuer).origin;
+        return Response.json(
+          options.authMetadata || {
+            issuer,
+            authorization_endpoint: `${base}/authorize`,
+            registration_endpoint: `${base}/register`,
+            token_endpoint: `${base}/token`,
+            rdh_refresh_endpoint: `${base}/token/refresh`,
+            revocation_endpoint: `${base}/revoke`,
+            scopes_supported: ['devices:control'],
+            response_types_supported: ['code'],
+            grant_types_supported: ['authorization_code', 'refresh_token'],
+            code_challenge_methods_supported: ['S256'],
+            token_endpoint_auth_methods_supported: ['none'],
+            authorization_response_iss_parameter_supported: true,
+          },
+        );
+      }
       requests.push({ url, init });
       if (options.transport) {
         return options.transport(url, init);
@@ -395,6 +443,7 @@ function harness(t, options = {}) {
     messages,
     opens,
     requests,
+    discoveryRequests,
     logs,
     callbackUris,
     callback,

@@ -15,6 +15,10 @@ export const READ_TOOLS = new Set([
   'list_processes',
   'list_searches',
   'get_search_results',
+  'get_call_status',
+  'list_calls',
+  'get_operation_status',
+  'list_operations',
   'get_billing_status',
 ]);
 const GLOBAL_READ_TOOLS = new Set(['list_devices', 'get_billing_status']);

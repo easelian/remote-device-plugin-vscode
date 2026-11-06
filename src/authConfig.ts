@@ -3,11 +3,8 @@ import { PUBLIC_URL, MCP_PUBLIC_URL } from './deploymentDefaults';
 
 export interface DeploymentConfig {
   readonly publicUrl: string;
-  readonly authBase: string;
+  readonly mcpOrigin: string;
   readonly mcpUri: string;
-  readonly tokenUri: string;
-  readonly refreshUri: string;
-  readonly revokeUri: string;
   readonly resource: string;
   readonly credentialNamespace: string;
 }
@@ -53,15 +50,12 @@ export function resolveDeployment(
   values: { publicUrl?: unknown; mcpPublicUrl?: unknown } = {},
 ): DeploymentConfig {
   const publicUrl = origin(values.publicUrl, PUBLIC_URL, 'remoteDeviceHub.publicUrl');
-  const authBase = origin(values.mcpPublicUrl, MCP_PUBLIC_URL, 'remoteDeviceHub.mcpPublicUrl');
-  const mcpUri = `${authBase}/mcp`;
+  const mcpOrigin = origin(values.mcpPublicUrl, MCP_PUBLIC_URL, 'remoteDeviceHub.mcpPublicUrl');
+  const mcpUri = `${mcpOrigin}/mcp`;
   return Object.freeze({
     publicUrl,
-    authBase,
+    mcpOrigin,
     mcpUri,
-    tokenUri: `${authBase}/token`,
-    refreshUri: `${authBase}/token/refresh`,
-    revokeUri: `${authBase}/revoke`,
     resource: mcpUri,
     credentialNamespace: `rdh.deployment.${createHash('sha256').update(mcpUri).digest('hex')}`,
   });

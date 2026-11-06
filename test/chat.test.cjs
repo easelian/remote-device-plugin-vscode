@@ -591,6 +591,38 @@ test('automatic reads are limited to allowed devices while global discovery rema
   assertClean(h);
 });
 
+test('recovery queries are read-only but still require an allowed device', async () => {
+  const tools = ['get_call_status', 'list_calls', 'get_operation_status', 'list_operations'];
+  const options = { config: automatic({ automaticTools: [] }), tools };
+  const h = setup(options);
+  options.responses = tools.map((name, i) => [new h.Call(`r${i}`, name, { device_id: 'device' })]);
+  await h.run();
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, tools.length);
+  assert.equal(h.confirmations.length, 0);
+  assertClean(h);
+
+  const deniedOptions = { config: automatic({ automaticTools: [] }), tools: ['list_calls'] };
+  const denied = setup(deniedOptions);
+  deniedOptions.responses = [[new denied.Call('denied', 'list_calls', { device_id: 'other' })]];
+  await denied.run();
+  assert.equal(denied.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assert.match(denied.text.join(''), /automaticDevices/);
+  assertClean(denied);
+});
+
+test('operation preparation still requires explicit automatic-mode permission', async () => {
+  const options = {
+    config: automatic({ automaticTools: [] }),
+    tools: ['prepare_operation'],
+  };
+  const h = setup(options);
+  options.responses = [[new h.Call('prepare', 'prepare_operation', { device_id: 'device' })]];
+  await h.run();
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assert.match(h.text.join(''), /automaticTools/);
+  assertClean(h);
+});
+
 test('a fabricated device argument cannot authorize a global mutation in automatic mode', async () => {
   const options = {
     config: automatic({ automaticTools: ['activate_account'] }),

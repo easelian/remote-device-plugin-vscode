@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { withCredentialLock } from './credentialLock';
 import { CredentialStore, type RevocationCredential } from './credentialStore';
 import { CredentialError, msg } from './authErrors';
+import { discoverAuth, type AuthEndpoints } from './authDiscovery';
 import { abortable, startCallbackServer } from './authCallback';
 import { isRecord, readClientId, readTokenResponse, type TokenSet } from './boundaries';
 import {
@@ -32,6 +33,7 @@ export class AuthSession implements vscode.Disposable {
   private disposed = false;
   private started = false;
   private scheduleGeneration = 0;
+  private authDiscovery: Promise<AuthEndpoints> | undefined;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -165,8 +167,34 @@ export class AuthSession implements vscode.Disposable {
     );
   }
 
-  readStoredToken(): Promise<TokenSet | undefined> {
-    return this.store.read();
+  private getAuthEndpoints(): Promise<AuthEndpoints> {
+    if (!this.authDiscovery) {
+      const pending = discoverAuth(this.deployment);
+      this.authDiscovery = pending;
+      void pending.catch(() => {
+        if (this.authDiscovery === pending) {
+          this.authDiscovery = undefined;
+        }
+      });
+    }
+    return this.authDiscovery;
+  }
+
+  async readStoredToken(): Promise<TokenSet | undefined> {
+    const first = await this.store.read();
+    if (!first) {
+      return undefined;
+    }
+    const endpoints = await this.getAuthEndpoints();
+    // Discovery can take longer than a concurrent sign-out or account switch.
+    const token = await this.store.read();
+    if (token && token._issuer !== endpoints.issuer) {
+      throw new CredentialError(
+        'authorization_changed',
+        'Saved credentials are not bound to the current authorization server. Use Remote Device Hub: Sign In to reconnect.',
+      );
+    }
+    return token;
   }
 
   private refreshToken(t: TokenSet): Promise<TokenSet | undefined> {
@@ -298,11 +326,21 @@ export class AuthSession implements vscode.Disposable {
         'Saved credentials have no refresh token. Use Remote Device Hub: Sign In to reconnect.',
       );
     }
+    const endpoints = await this.getAuthEndpoints();
+    if (t._issuer !== endpoints.issuer) {
+      throw new CredentialError('authorization_changed', 'Use Sign In to reconnect.');
+    }
+    if (t._refresh_request_id && !endpoints.refreshUri) {
+      throw new CredentialError(
+        'refresh_outcome_unknown',
+        'The previous refresh cannot be recovered with the current server metadata. Use Sign In to reconnect.',
+      );
+    }
     // The client-only recovery key is stored separately from OAuth responses and
     // token records. A stolen token pair cannot derive a future recovery proof.
     // New grants create this key before publishing their credentials to hosts.
     let requestId = t._refresh_request_id;
-    if (t._refresh_recovery && !requestId) {
+    if (t._refresh_recovery && endpoints.refreshUri && !requestId) {
       const recoveryKey = await this.store.recoveryKey(t.client_id);
       if (!recoveryKey || !/^[A-Za-z0-9_-]{43}$/.test(recoveryKey)) {
         throw new CredentialError(
@@ -343,7 +381,9 @@ export class AuthSession implements vscode.Disposable {
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: body.toString(),
         });
-      let resp = await send(requestId ? this.deployment.refreshUri : this.deployment.tokenUri);
+      let resp = await send(
+        requestId && endpoints.refreshUri ? endpoints.refreshUri : endpoints.tokenUri,
+      );
       if (requestId && resp.status === 404 && t._refresh_state !== 'pending') {
         // A definitive 404 on the first recovery request permits /token fallback;
         // an indeterminate request never does.
@@ -351,7 +391,7 @@ export class AuthSession implements vscode.Disposable {
         delete pending._refresh_request_id;
         await this.store.save(pending);
         body.delete('rdh_refresh_id');
-        resp = await send(this.deployment.tokenUri);
+        resp = await send(endpoints.tokenUri);
         this.log.debug('server has no refresh recovery endpoint; used /token refresh');
       }
       const responseRequestId = resp.headers.get('x-request-id');
@@ -539,6 +579,7 @@ export class AuthSession implements vscode.Disposable {
           // Keep this marker after cancellation, timeout, failure, and reload. A
           // waiting window must not start another browser flow after we release.
           await this.store.recordAuthHistory({ attempted_at: Date.now() });
+          const endpoints = await abortable(this.getAuthEndpoints(), signal, 'OAuth discovery');
           progress.report({ message: 'Preparing browser callback…' });
           const cb = await startCallbackServer();
           this.log.info(`sign-in started; waiting for browser callback on 127.0.0.1:${cb.port}`);
@@ -556,7 +597,7 @@ export class AuthSession implements vscode.Disposable {
             progress.report({ message: 'Preparing authorization…' });
             const requestSignal = () =>
               AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
-            const reg = await fetch(`${this.deployment.authBase}/register`, {
+            const reg = await fetch(endpoints.registrationUri, {
               redirect: 'error',
               method: 'POST',
               signal: requestSignal(),
@@ -580,7 +621,7 @@ export class AuthSession implements vscode.Disposable {
             const state = base64url(crypto.randomBytes(16));
 
             // 3) Open the browser for authorization
-            const authUrl = new URL(`${this.deployment.authBase}/authorize`);
+            const authUrl = new URL(endpoints.authorizationUri);
             const params: Record<string, string> = {
               response_type: 'code',
               client_id: clientId,
@@ -620,7 +661,12 @@ export class AuthSession implements vscode.Disposable {
             // 4) Wait for the callback
             progress.report({ message: 'Complete authorization in your browser…' });
             const result = await abortable(
-              cb.waitForCode(state, AUTH_TIMEOUT_MS),
+              cb.waitForCode(
+                state,
+                AUTH_TIMEOUT_MS,
+                endpoints.issuer,
+                endpoints.responseIssuerRequired,
+              ),
               signal,
               'authorization',
               AUTH_TIMEOUT_MS,
@@ -638,7 +684,7 @@ export class AuthSession implements vscode.Disposable {
               code_verifier: verifier,
               resource: this.deployment.resource,
             });
-            const resp = await fetch(this.deployment.tokenUri, {
+            const resp = await fetch(endpoints.tokenUri, {
               method: 'POST',
               redirect: 'error',
               signal: requestSignal(),
@@ -651,6 +697,7 @@ export class AuthSession implements vscode.Disposable {
             const tok: TokenSet = {
               ...readTokenResponse(await resp.json(), clientId),
               client_id: clientId,
+              _issuer: endpoints.issuer,
             };
             signal.throwIfAborted();
             tok.client_id = clientId;
@@ -689,11 +736,13 @@ export class AuthSession implements vscode.Disposable {
     await withCredentialLock(this.scope, async () => {
       await this.store.recordAuthHistory({ signed_out_at: Date.now() });
       let clientId: string | undefined;
+      let credentialIssuer: string | undefined;
       let revocation: RevocationCredential | undefined;
       try {
         const saved = await this.store.readRevocation();
         if (saved) {
           clientId = saved.clientId;
+          credentialIssuer = saved.issuer;
           if (!saved.credential) {
             throw new Error('No saved token to revoke');
           }
@@ -714,7 +763,11 @@ export class AuthSession implements vscode.Disposable {
       }
       if (clientId && revocation) {
         try {
-          const response = await fetch(this.deployment.revokeUri, {
+          const endpoints = await this.getAuthEndpoints();
+          if (!credentialIssuer || credentialIssuer !== endpoints.issuer || !endpoints.revokeUri) {
+            throw new Error('The saved issuer cannot be safely revoked');
+          }
+          const response = await fetch(endpoints.revokeUri, {
             method: 'POST',
             redirect: 'error',
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

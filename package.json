@@ -2,7 +2,7 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.22",
+  "version": "0.0.23",
   "publisher": "easelian",
   "author": "EaseLian",
   "license": "Apache-2.0",
@@ -108,7 +108,7 @@
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "MCP and OAuth origin for this deployment. Empty uses the packaged deployment default. Credentials are isolated by this origin; changing it requires signing in separately. Only User or Remote settings are accepted. Reload the window to apply changes. HTTPS required, except HTTP loopback origins."
+          "description": "MCP origin for this deployment. OAuth endpoints are discovered from the MCP resource. Empty uses the packaged deployment default. Credentials are isolated by resource and authorization issuer. Only User or Remote settings are accepted. Reload the window to apply changes. HTTPS required, except HTTP loopback origins."
         }
       }
     },

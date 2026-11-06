@@ -26,7 +26,7 @@ export function activate(context: vscode.ExtensionContext): void {
     return;
   }
   const auth = new AuthSession(context, log, deployment);
-  log.info(`Deployment: ${deployment.authBase}; website: ${deployment.publicUrl}`);
+  log.info(`MCP origin: ${deployment.mcpOrigin}; website: ${deployment.publicUrl}`);
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (
@@ -37,7 +37,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       try {
         const next = readDeployment();
-        if (next.publicUrl === deployment.publicUrl && next.authBase === deployment.authBase) {
+        if (next.publicUrl === deployment.publicUrl && next.mcpOrigin === deployment.mcpOrigin) {
           return;
         }
       } catch {
@@ -45,7 +45,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       void vscode.window
         .showWarningMessage(
-          `Remote Device Hub deployment settings changed. This window continues using ${deployment.authBase} until you reload.`,
+          `Remote Device Hub deployment settings changed. This window continues using ${deployment.mcpOrigin} until you reload.`,
           'Reload Window',
         )
         .then((choice) => {

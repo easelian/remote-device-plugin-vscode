@@ -15,9 +15,9 @@ import time
 import pytest
 
 from remote_device_hub.store import digest
-from test_mcp_sessions import token_for
+from tests.reference.test_mcp_sessions import token_for
 
-pytest_plugins = ["test_integration"]
+pytest_plugins = ["tests.conftest", "tests.reference.test_integration"]
 BRIDGE = Path(__file__).parents[1] / "helpers/refreshBridge.cjs"
 
 
