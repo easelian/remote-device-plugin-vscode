@@ -4,7 +4,7 @@
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
   "version": "0.0.23",
   "publisher": "easelian",
-  "author": "EaseLian",
+  "author": "Easelian",
   "license": "Apache-2.0",
   "icon": "resources/icon.png",
   "homepage": "https://rdh.easelian.com",

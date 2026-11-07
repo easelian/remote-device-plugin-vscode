@@ -1,8 +1,8 @@
 # Remote Device Hub for VS Code
 
-![EaseLian](resources/icon.png)
+![Easelian](resources/icon.png)
 
-Remote Device Hub by EaseLian is a VS Code extension for working with your authorized remote devices through Copilot Chat and MCP.
+Remote Device Hub by Easelian is a VS Code extension for working with your authorized remote devices through Copilot Chat and MCP.
 
 [Remote Device Hub](https://rdh.easelian.com) · [Source](https://github.com/easelian/remote-device-plugin-vscode) · [Report an issue](https://github.com/easelian/remote-device-plugin-vscode/issues)
 
@@ -177,7 +177,7 @@ For the split-service integration test, set `RDH_TEST_RUST_AUTH` and `RDH_TEST_R
 
 ## Brand assets and license
 
-The extension icon is a 256 × 256 PNG exported from the [Remote Device Hub universal product master](https://github.com/easelian/brand/blob/main/products/remote-device-hub/icons/remote-device-hub.svg). Its fixed charcoal badge and off-white border, desktop display, lock, and two-tooth key use two solid colors on both light and dark surfaces; only the rounded outer corners are transparent. EaseLian is the publisher. The Marketplace banner uses the product background color, `#1D1D1F`.
+The extension icon is a 256 × 256 PNG exported from the [Remote Device Hub universal product master](https://github.com/easelian/brand/blob/main/products/remote-device-hub/icons/remote-device-hub.svg). Its fixed charcoal badge and off-white border, desktop display, lock, and two-tooth key use two solid colors on both light and dark surfaces; only the rounded outer corners are transparent. Easelian is the publisher. The Marketplace banner uses the product background color, `#1D1D1F`.
 
 To regenerate the icon from a sibling `brand` checkout:
 
