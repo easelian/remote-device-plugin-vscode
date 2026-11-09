@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const http = require('node:http');
 const path = require('node:path');
 const realFetch = global.fetch;
-const { resolveDeployment, userDeploymentValue } = require('../../out/authConfig');
+const { resolveDeployment } = require('../../out/authConfig');
 const { MCP_PUBLIC_URL } = require('../../out/deploymentDefaults');
 const DEFAULT_NAMESPACE = resolveDeployment().credentialNamespace;
 const TOKEN_KEY = `${DEFAULT_NAMESPACE}.tokens.v1`;
@@ -30,10 +30,7 @@ async function until(predicate) {
 }
 function harness(t, options = {}) {
   const configuration = options.configuration || {};
-  const deployment = resolveDeployment({
-    publicUrl: userDeploymentValue(configuration.publicUrl),
-    mcpPublicUrl: userDeploymentValue(configuration.mcpPublicUrl),
-  });
+  const deployment = resolveDeployment(options.deployment);
   const tokenKey = `${deployment.credentialNamespace}.tokens.v1`;
   const authStateKey = `${deployment.credentialNamespace}.authState.v1`;
   const refreshKeyPrefix = `${deployment.credentialNamespace}.refreshKey.v1.`;
@@ -411,6 +408,10 @@ function harness(t, options = {}) {
       }
       if (name === './credentialLock') {
         return require('../../out/credentialLock');
+      }
+      if (name === './deploymentDefaults') {
+        // Simulate a package built for a disposable deployment, without user settings.
+        return { PUBLIC_URL: deployment.publicUrl, MCP_PUBLIC_URL: deployment.mcpOrigin };
       }
       return name.startsWith('.')
         ? load(require.resolve(path.resolve(path.dirname(filename), name)))

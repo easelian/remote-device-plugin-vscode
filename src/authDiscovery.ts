@@ -1,6 +1,7 @@
 import { isIP } from 'net';
 import { isRecord } from './boundaries';
-import { REQUEST_TIMEOUT_MS, SCOPE, type DeploymentConfig } from './authConfig';
+import { SCOPE, type DeploymentConfig } from './authConfig';
+import { withRequestDeadline } from './requestDeadline';
 
 export interface AuthEndpoints {
   readonly issuer: string;
@@ -57,46 +58,50 @@ function supports(value: unknown, required: string, name: string): void {
 }
 
 async function metadata(url: string): Promise<Record<string, unknown>> {
-  const response = await fetch(url, {
-    redirect: 'error',
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    throw new Error(`OAuth discovery failed with HTTP ${response.status}.`);
-  }
-  if (!response.body) {
-    throw new Error('OAuth discovery returned an empty response.');
-  }
-  const reader = response.body.getReader();
-  const chunks: Buffer[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) {
-        break;
-      }
-      size += part.value.byteLength;
-      if (size > MAX_METADATA_BYTES) {
-        throw new Error('OAuth discovery response is too large.');
-      }
-      chunks.push(Buffer.from(part.value));
+  return withRequestDeadline(async (signal) => {
+    const response = await fetch(url, {
+      redirect: 'error',
+      signal,
+      headers: { Accept: 'application/json' },
+    });
+    signal.throwIfAborted();
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
+      throw new Error(`OAuth discovery failed with HTTP ${response.status}.`);
     }
-  } finally {
-    await reader.cancel().catch(() => {});
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    throw new Error('OAuth discovery returned invalid JSON.');
-  }
-  if (!isRecord(parsed)) {
-    throw new Error('OAuth discovery returned invalid metadata.');
-  }
-  return parsed;
+    if (!response.body) {
+      throw new Error('OAuth discovery returned an empty response.');
+    }
+    const reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const part = await reader.read();
+        signal.throwIfAborted();
+        if (part.done) {
+          break;
+        }
+        size += part.value.byteLength;
+        if (size > MAX_METADATA_BYTES) {
+          throw new Error('OAuth discovery response is too large.');
+        }
+        chunks.push(Buffer.from(part.value));
+      }
+    } finally {
+      void reader.cancel().catch(() => {});
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      throw new Error('OAuth discovery returned invalid JSON.');
+    }
+    if (!isRecord(parsed)) {
+      throw new Error('OAuth discovery returned invalid metadata.');
+    }
+    return parsed;
+  }, 'OAuth discovery');
 }
 
 /** Discover the issuing authority from this configured MCP resource. */

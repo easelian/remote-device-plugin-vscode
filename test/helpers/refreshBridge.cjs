@@ -24,7 +24,7 @@ async function main() {
       },
     },
     {
-      configuration: { mcpPublicUrl: { globalValue: input.server } },
+      deployment: { mcpPublicUrl: input.server },
       token: { ...saved.token, _issuer: `${authOrigin}/` },
       issuer: `${authOrigin}/`,
       realDiscovery: Boolean(input.realDiscovery),

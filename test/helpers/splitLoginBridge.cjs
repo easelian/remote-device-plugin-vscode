@@ -71,7 +71,7 @@ async function main() {
       },
     },
     {
-      configuration: { mcpPublicUrl: { globalValue: input.server } },
+      deployment: { mcpPublicUrl: input.server },
       issuer,
       realDiscovery: true,
       browserFlow,

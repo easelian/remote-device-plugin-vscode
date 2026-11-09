@@ -4,7 +4,8 @@ import { withCredentialLock } from './credentialLock';
 import { CredentialStore, type RevocationCredential } from './credentialStore';
 import { CredentialError, msg } from './authErrors';
 import { discoverAuth, type AuthEndpoints } from './authDiscovery';
-import { abortable, startCallbackServer } from './authCallback';
+import { startCallbackServer } from './authCallback';
+import { abortable, withRequestDeadline } from './requestDeadline';
 import { isRecord, readClientId, readTokenResponse, type TokenSet } from './boundaries';
 import {
   type DeploymentConfig,
@@ -270,18 +271,21 @@ export class AuthSession implements vscode.Disposable {
   // A locally unexpired token may have been revoked. Check it with an MCP ping
   // so this extension can recover before VS Code starts its own OAuth flow.
   async acceptsToken(t: TokenSet): Promise<boolean> {
-    const resp = await fetch(this.deployment.mcpUri, {
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      headers: {
-        Authorization: `Bearer ${t.access_token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-      },
-      body: JSON.stringify({ jsonrpc: '2.0', id: 'rdh-auth-check', method: 'ping' }),
-    });
-    await resp.body?.cancel();
+    const resp = await withRequestDeadline(async (signal) => {
+      const response = await fetch(this.deployment.mcpUri, {
+        method: 'POST',
+        redirect: 'error',
+        signal,
+        headers: {
+          Authorization: `Bearer ${t.access_token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 'rdh-auth-check', method: 'ping' }),
+      });
+      void response.body?.cancel().catch(() => {});
+      return response;
+    }, 'MCP credential check');
     this.log.info(`MCP credential check: HTTP ${resp.status}`);
     if (resp.status === 401) {
       return false;
@@ -373,25 +377,38 @@ export class AuthSession implements vscode.Disposable {
       if (requestId) {
         body.set('rdh_refresh_id', requestId);
       }
-      const send = (uri: string) =>
-        fetch(uri, {
-          method: 'POST',
-          redirect: 'error',
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString(),
-        });
-      let resp = await send(
+      const send = (uri: string, allowFallback = false) =>
+        withRequestDeadline(async (signal) => {
+          const resp = await fetch(uri, {
+            method: 'POST',
+            redirect: 'error',
+            signal,
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString(),
+          });
+          signal.throwIfAborted();
+          if (allowFallback && resp.status === 404) {
+            void resp.body?.cancel().catch(() => {});
+            return { resp, data: undefined };
+          }
+          const data: unknown = resp.ok
+            ? await resp.json()
+            : await resp.json().catch(() => undefined);
+          return { resp, data };
+        }, 'Token refresh');
+      const useRecovery = Boolean(requestId && endpoints.refreshUri);
+      const allowFallback = useRecovery && t._refresh_state !== 'pending';
+      let { resp, data } = await send(
         requestId && endpoints.refreshUri ? endpoints.refreshUri : endpoints.tokenUri,
+        allowFallback,
       );
-      if (requestId && resp.status === 404 && t._refresh_state !== 'pending') {
+      if (resp.status === 404 && allowFallback) {
         // A definitive 404 on the first recovery request permits /token fallback;
         // an indeterminate request never does.
-        await resp.body?.cancel();
         delete pending._refresh_request_id;
         await this.store.save(pending);
         body.delete('rdh_refresh_id');
-        resp = await send(endpoints.tokenUri);
+        ({ resp, data } = await send(endpoints.tokenUri));
         this.log.debug('server has no refresh recovery endpoint; used /token refresh');
       }
       const responseRequestId = resp.headers.get('x-request-id');
@@ -399,9 +416,7 @@ export class AuthSession implements vscode.Disposable {
         `token refresh: HTTP ${resp.status}${responseRequestId && /^[A-Za-z0-9_-]{1,128}$/.test(responseRequestId) ? `; request=${responseRequestId}` : ''}`,
       );
       if (!resp.ok) {
-        const error: unknown = await resp.json().catch(() => undefined);
-        const errorCode =
-          isRecord(error) && typeof error.error === 'string' ? error.error : undefined;
+        const errorCode = isRecord(data) && typeof data.error === 'string' ? data.error : undefined;
         if (resp.status === 400 && errorCode === 'invalid_grant') {
           const current = await this.readStoredToken();
           if (
@@ -439,11 +454,11 @@ export class AuthSession implements vscode.Disposable {
         }
         throw new Error(`token refresh HTTP ${resp.status}; credentials retained`);
       }
-      const data = readTokenResponse(await resp.json(), t.client_id);
+      const rotated = readTokenResponse(data, t.client_id);
       const next: TokenSet = {
         ...t,
-        ...data,
-        refresh_token: data.refresh_token ?? t.refresh_token,
+        ...rotated,
+        refresh_token: rotated.refresh_token ?? t.refresh_token,
         _got_at: Date.now() / 1000,
       };
       delete next._refresh_state;

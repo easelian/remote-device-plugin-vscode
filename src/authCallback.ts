@@ -1,5 +1,4 @@
 import * as http from 'http';
-import { REQUEST_TIMEOUT_MS } from './authConfig';
 
 interface CallbackResult {
   code?: string | undefined;
@@ -94,26 +93,4 @@ export function startCallbackServer(): Promise<{
       });
     });
   });
-}
-
-export function abortable<T>(
-  work: Thenable<T>,
-  signal: AbortSignal,
-  stage: string,
-  timeoutMs = REQUEST_TIMEOUT_MS,
-): Promise<T> {
-  let cleanup = () => {};
-  return new Promise<T>((resolve, reject) => {
-    const aborted = () => reject(signal.reason);
-    const timer = setTimeout(() => reject(new Error(`${stage} timed out`)), timeoutMs);
-    cleanup = () => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', aborted);
-    };
-    signal.addEventListener('abort', aborted, { once: true });
-    if (signal.aborted) {
-      aborted();
-    }
-    Promise.resolve(work).then(resolve, reject);
-  }).finally(() => cleanup());
 }

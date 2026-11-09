@@ -747,6 +747,38 @@ test('background refresh retries the same recovery operation after a timeout', a
   assert.equal(h.opens.length, 0);
 });
 
+test('a stalled refresh stops waiting and recovers the same committed rotation', async (t) => {
+  const clock = { now: Date.now() };
+  const server = recoverableServer();
+  let firstSignal;
+  const h = harness(t, {
+    clock,
+    token: { ...freshToken(), _got_at: 0 },
+    recovery: true,
+    async onRefresh(url, init) {
+      const response = await server.refresh(url, init);
+      if (!firstSignal) {
+        firstSignal = init.signal;
+        return new Promise(() => {});
+      }
+      return response;
+    },
+  });
+  await until(() => firstSignal);
+  await h.advance(30_000);
+  await until(() => h.logs.some((line) => line.includes('Token refresh timed out')));
+  assert.equal(firstSignal.aborted, true);
+  assert.equal(h.token._refresh_state, 'pending');
+  assert.equal(
+    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
+    'Bearer accepted',
+  );
+  assert.equal(server.rotations, 1);
+  assert.equal(server.proofs.length, 2);
+  assert.equal(server.proofs[0], server.proofs[1]);
+  assert.equal(h.opens.length, 0);
+});
+
 test('recovery follows an expired cached rotation before sending MCP requests', async (t) => {
   let calls = 0;
   const h = harness(t, {

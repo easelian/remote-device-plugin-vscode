@@ -9,13 +9,14 @@ import {
   readRpcResult,
 } from './boundaries';
 import { ChatContext, preview, toolResultText } from './chatContext';
+import { RequestDeadlineError, withRequestDeadline } from './requestDeadline';
 import {
   cancellable,
   ChatRun,
-  checkAutomaticCall,
   readChatPolicy,
   READ_TOOLS,
   RunStopped,
+  selectChatPermissions,
 } from './chatRun';
 
 export const CHAT_ID = 'easelian.remote-device-hub.chat';
@@ -59,28 +60,27 @@ export class HubClient {
     if (this.token.isCancellationRequested) {
       throw new vscode.CancellationError();
     }
-    const accessToken = await cancellable(() => this.deps.accessToken(), this.token);
-    if (!accessToken) {
-      throw new Error('Your session has expired. Send your request again to sign in.');
-    }
-    if (this.token.isCancellationRequested) {
-      throw new vscode.CancellationError();
-    }
     const controller = new AbortController();
-    const cancel = this.token.onCancellationRequested(() => controller.abort());
+    const cancel = this.token.onCancellationRequested(() =>
+      controller.abort(new vscode.CancellationError()),
+    );
     if (this.token.isCancellationRequested) {
-      controller.abort();
+      controller.abort(new vscode.CancellationError());
     }
-    const timer = setTimeout(() => controller.abort(), 60_000);
     const notification = method.startsWith('notifications/');
     const id = ++this.id;
     try {
-      const response = await cancellable(
-        () =>
-          fetch(this.deps.endpoint, {
+      return await withRequestDeadline(
+        async (signal) => {
+          const accessToken = await this.deps.accessToken();
+          signal.throwIfAborted();
+          if (!accessToken) {
+            throw new Error('Your session has expired. Send your request again to sign in.');
+          }
+          const response = await fetch(this.deps.endpoint, {
             method: 'POST',
             redirect: 'error',
-            signal: controller.signal,
+            signal,
             headers: {
               Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
@@ -93,53 +93,59 @@ export class HubClient {
               method,
               params,
             }),
-          }),
-        this.token,
+          });
+          signal.throwIfAborted();
+          if (!response.ok) {
+            void response.body?.cancel().catch(() => {});
+            throw new Error(
+              `Remote Device Hub HTTP ${response.status}. The request was not retried.`,
+            );
+          }
+          if (response.headers.get('Mcp-Session-Id')) {
+            this.stateless = false;
+          }
+          if (notification) {
+            void response.body?.cancel().catch(() => {});
+            return {};
+          }
+          if (!response.headers.get('content-type')?.includes('application/json')) {
+            void response.body?.cancel().catch(() => {});
+            throw new Error(
+              'This chat participant requires RDH to return stateless JSON responses over HTTP.',
+            );
+          }
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new Error('The MCP server returned an empty response.');
+          }
+          const chunks: Uint8Array[] = [];
+          let size = 0;
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              signal.throwIfAborted();
+              if (done) {
+                break;
+              }
+              size += value.length;
+              if (size > 2 * 1024 * 1024) {
+                throw new Error('The MCP response exceeds 2 MiB. Narrow your query and try again.');
+              }
+              chunks.push(value);
+            }
+          } finally {
+            void reader.cancel().catch(() => {});
+          }
+          return readRpcResult(parseJson(Buffer.concat(chunks).toString('utf8')), id);
+        },
+        `Remote Device Hub ${method}`,
+        60_000,
+        controller,
       );
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new Error(`Remote Device Hub HTTP ${response.status}. The request was not retried.`);
-      }
-      if (response.headers.get('Mcp-Session-Id')) {
-        this.stateless = false;
-      }
-      if (notification) {
-        await response.body?.cancel();
-        return {};
-      }
-      if (!response.headers.get('content-type')?.includes('application/json')) {
-        await response.body?.cancel();
-        throw new Error(
-          'This chat participant requires RDH to return stateless JSON responses over HTTP.',
-        );
-      }
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error('The MCP server returned an empty response.');
-      }
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      try {
-        for (;;) {
-          const { done, value } = await cancellable(() => reader.read(), this.token);
-          if (done) {
-            break;
-          }
-          size += value.length;
-          if (size > 2 * 1024 * 1024) {
-            throw new Error('The MCP response exceeds 2 MiB. Narrow your query and try again.');
-          }
-          chunks.push(value);
-        }
-      } finally {
-        void reader.cancel().catch(() => {});
-      }
-      return readRpcResult(parseJson(Buffer.concat(chunks).toString('utf8')), id);
     } catch (error) {
       discovery.delete(this.deps);
       throw error;
     } finally {
-      clearTimeout(timer);
       cancel.dispose();
     }
   }
@@ -232,6 +238,9 @@ export function registerChat(context: vscode.ExtensionContext, deps: Dependencie
   );
   participant.iconPath = new vscode.ThemeIcon('remote');
   context.subscriptions.push(participant);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('rdh.setChatPermissions', selectChatPermissions),
+  );
   context.subscriptions.push({
     dispose() {
       shutdown.cancel();
@@ -262,12 +271,13 @@ export function createChatHandler(
       run = new ChatRun(policy, token, shutdown);
       const active = run;
       active.check();
-      if (policy.executionMode === 'automatic' && !vscode.workspace.isTrusted) {
-        throw new RunStopped('permission', 'Automatic execution requires a trusted workspace.');
+      if (policy.permissions === 'full-access' && !vscode.workspace.isTrusted) {
+        throw new RunStopped(
+          'permission',
+          vscode.l10n.t('Full access requires a trusted workspace.'),
+        );
       }
-      audit(
-        `started mode=${policy.executionMode} turnBudget=${policy.maxModelTurns} toolBudget=${policy.maxToolCalls} minutes=${policy.maxDurationMinutes}`,
-      );
+      audit(`started permissions=${policy.permissions} minutes=${policy.maxDurationMinutes}`);
       stream.progress('Connecting to Remote Device Hub…');
       if (!(await cancellable(() => deps.ensureSignedIn(), active.token))) {
         active.reason = 'sign-in';
@@ -275,14 +285,18 @@ export function createChatHandler(
         return;
       }
       active.check();
+      stream.progress('Loading Remote Device Hub tools…');
       const hub = new HubClient(deps, active.token);
       const tools = await hub.discoverTools();
       const available = new Map(tools.map((tool) => [tool.name, tool]));
-      const modelTools = tools.map((t) => ({
-        name: t.name,
-        description: t.description ?? t.name,
-        inputSchema: t.inputSchema,
-      }));
+      const modelTools = tools
+        .filter((tool) => policy.permissions !== 'read-only' || READ_TOOLS.has(tool.name))
+        .map((tool) => ({
+          name: tool.name,
+          description: tool.description ?? tool.name,
+          inputSchema: tool.inputSchema,
+        }));
+      stream.progress('Waiting for the selected chat model…');
       const toolTokens = await cancellable(
         () => request.model.countTokens(JSON.stringify(modelTools), active.token),
         active.token,
@@ -300,11 +314,11 @@ export function createChatHandler(
           'For a supported authorized change on a device advertising operation receipts, use prepare_operation and pass its returned operation_id to the change. ' +
           'After an uncertain outcome, use get_operation_status or list_operations for receipts, or get_call_status or list_calls for ordinary calls; correlate results before attributing them to the call. Never invent an operation ID. ' +
           'Stop when the task is complete, permission is denied, or user input is necessary. Never repeat an uncertain side effect without checking its state. ' +
-          (policy.executionMode === 'automatic'
-            ? `Automatic mode permits device operations only on these exact device IDs: ${JSON.stringify(policy.automaticDevices)}. ` +
-              `Non-read-only tools permitted without a popup: ${JSON.stringify(policy.automaticTools)}. ` +
-              'Read-only global discovery is available. Calls outside this scope stop the request; do not attempt to bypass it.'
-            : 'Writes and shell commands require user confirmation. Stop the operation if permission is denied.'),
+          (policy.permissions === 'full-access'
+            ? "Full access permits the available tools without per-call confirmation. Stay within the user's requested task and the remote device's permissions."
+            : policy.permissions === 'read-only'
+              ? 'Read only permissions allow inspection only. Do not write files, start commands, prepare operations, or use tools to bypass this restriction.'
+              : 'Writes and shell commands require user approval. The user can approve once or allow device operations for this request. Stop if permission is denied.'),
       );
       // Preserve bounded text context for follow-up device references; fresh tools supply current facts.
       const history: vscode.LanguageModelChatMessage[] = [];
@@ -344,7 +358,8 @@ export function createChatHandler(
           stream.progress('Keeping recent results and compacting earlier tool history…');
           audit(`context compacted=${conversation.compactions}`);
         }
-        active.nextTurn();
+        active.check();
+        active.turns++;
         const response = await cancellable(
           () => request.model.sendRequest(messages, { tools: modelTools }, active.token),
           active.token,
@@ -385,7 +400,7 @@ export function createChatHandler(
         const results: vscode.LanguageModelToolResultPart[] = [];
         const notes: object[] = [];
         for (const call of toolCalls) {
-          active.checkCallBudget();
+          active.check();
           const tool = available.get(call.name);
           if (!tool) {
             throw new Error(`The model requested a tool that was not provided: ${call.name}`);
@@ -393,25 +408,9 @@ export function createChatHandler(
           if (!isRecord(call.input)) {
             throw new Error(`The model supplied invalid arguments for ${call.name}.`);
           }
-          checkAutomaticCall(policy, call.name, call.input, tool.inputSchema);
-          if (policy.executionMode === 'confirm' && !READ_TOOLS.has(call.name)) {
-            const choice = await cancellable(
-              () =>
-                vscode.window.showWarningMessage(
-                  `Allow Remote Device Hub to run ${call.name}?`,
-                  {
-                    modal: true,
-                    detail: JSON.stringify(call.input, null, 2),
-                  },
-                  'Run',
-                ),
-              active.token,
-            );
-            if (choice !== 'Run') {
-              active.reason = 'declined';
-              stream.markdown('\nOperation canceled.');
-              return;
-            }
+          if (!(await active.approveCall(call.name, call.input, tool.inputSchema))) {
+            stream.markdown('\n' + vscode.l10n.t('Operation canceled.'));
+            return;
           }
           active.check();
           stream.progress(`Running ${call.name}…`);
@@ -426,7 +425,12 @@ export function createChatHandler(
           try {
             result = await hub.request('tools/call', { name: call.name, arguments: call.input });
           } catch (error) {
-            audit(`tool=${label(call.name)} call=${active.calls} outcome=unconfirmed`);
+            const operationId = call.input.operation_id;
+            const receipt =
+              typeof operationId === 'string' && /^[a-f0-9]{32}$/.test(operationId)
+                ? ` operation=${operationId}`
+                : '';
+            audit(`tool=${label(call.name)} call=${active.calls} outcome=unconfirmed${receipt}`);
             throw error;
           }
           audit(
@@ -463,11 +467,17 @@ export function createChatHandler(
       if (run?.token.isCancellationRequested) {
         if (!token.isCancellationRequested && run.reason === 'duration') {
           stream.markdown(
-            '\nStopped at the configured time budget. Send a follow-up to continue or change remoteDeviceHub.chat.maxDurationMinutes.',
+            '\n' +
+              vscode.l10n.t(
+                'Stopped at the configured time budget. Send a follow-up to continue or change remoteDeviceHub.chat.maxDurationMinutes.',
+              ),
           );
         } else if (!token.isCancellationRequested && run.reason === 'configuration-changed') {
           stream.markdown(
-            '\nChat execution settings changed. This run has stopped; send a new request to use the updated settings.',
+            '\n' +
+              vscode.l10n.t(
+                'Chat execution settings changed. This run has stopped; send a new request to use the updated settings.',
+              ),
           );
         }
         return;
@@ -476,7 +486,20 @@ export function createChatHandler(
         if (run) {
           run.reason = error.reason;
         }
-        stream.markdown(`\nStopped: ${error.message}`);
+        stream.markdown('\n' + vscode.l10n.t('Stopped: {0}', error.message));
+        return;
+      }
+      if (error instanceof RequestDeadlineError) {
+        if (run) {
+          run.reason = 'timeout';
+        }
+        stream.markdown(
+          '\n' +
+            vscode.l10n.t(
+              '{0}. If a command was sent, check its status before running it again.',
+              error.message,
+            ),
+        );
         return;
       }
       if (!token.isCancellationRequested) {

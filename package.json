@@ -1,8 +1,8 @@
 {
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
-  "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.24",
+  "description": "Use Copilot Chat or MCP in VS Code to access files and run permitted commands on your authorized devices.",
+  "version": "0.0.26",
   "publisher": "easelian",
   "author": "Easelian",
   "license": "Apache-2.0",
@@ -44,51 +44,27 @@
     "configuration": {
       "title": "Remote Device Hub",
       "properties": {
-        "remoteDeviceHub.chat.executionMode": {
+        "remoteDeviceHub.chat.permissions": {
           "type": "string",
           "enum": [
-            "confirm",
-            "automatic"
+            "read-only",
+            "ask",
+            "full-access"
           ],
-          "default": "confirm",
+          "enumItemLabels": [
+            "%permissions.readOnly%",
+            "%permissions.ask%",
+            "%permissions.fullAccess%"
+          ],
+          "markdownEnumDescriptions": [
+            "%permissions.readOnly.description%",
+            "%permissions.ask.description%",
+            "%permissions.fullAccess.description%"
+          ],
+          "default": "ask",
           "scope": "machine",
-          "markdownDescription": "Execution policy for `@remote-device-hub`. Confirm asks before each non-read-only call. Automatic runs on explicitly permitted devices with explicitly permitted tools. Only User or Remote settings can grant automatic access."
-        },
-        "remoteDeviceHub.chat.automaticDevices": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[a-zA-Z0-9_-]{1,128}$"
-          },
-          "uniqueItems": true,
-          "default": [],
-          "scope": "machine",
-          "markdownDescription": "Exact device IDs permitted for device operations in automatic chat mode. Obtain IDs with `list_devices`. No wildcards. Global read-only discovery is always available."
-        },
-        "remoteDeviceHub.chat.automaticTools": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[a-zA-Z0-9_-]{1,128}$"
-          },
-          "uniqueItems": true,
-          "default": [],
-          "scope": "machine",
-          "markdownDescription": "Exact non-read-only tool names permitted without confirmation in automatic chat mode. For example: `start_process`, `write_file`, `edit_file`. Allowing `start_process` lets the agent execute arbitrary shell commands with the remote Agent account's OS permissions."
-        },
-        "remoteDeviceHub.chat.maxModelTurns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 0,
-          "scope": "machine",
-          "description": "Maximum model turns per chat request. 0 allows iteration until completion, cancellation, another budget, or an error."
-        },
-        "remoteDeviceHub.chat.maxToolCalls": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 0,
-          "scope": "machine",
-          "description": "Maximum tool calls per chat request. 0 removes the tool call budget. Calls still require the configured execution permissions."
+          "order": 1,
+          "markdownDescription": "%permissions.description%"
         },
         "remoteDeviceHub.chat.maxDurationMinutes": {
           "type": "integer",
@@ -96,19 +72,8 @@
           "maximum": 1440,
           "default": 60,
           "scope": "machine",
-          "description": "Time budget in minutes for one chat request, including waits. 0 removes the deadline. Changing chat execution settings stops active runs."
-        },
-        "remoteDeviceHub.publicUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "Website origin for this deployment. Empty uses the packaged deployment default. Does not select the OAuth authority. Only User or Remote settings are accepted. Reload the window to apply changes. HTTPS required, except HTTP loopback origins."
-        },
-        "remoteDeviceHub.mcpPublicUrl": {
-          "type": "string",
-          "default": "",
-          "scope": "machine",
-          "description": "MCP origin for this deployment. OAuth endpoints are discovered from the MCP resource. Empty uses the packaged deployment default. Credentials are isolated by resource and authorization issuer. Only User or Remote settings are accepted. Reload the window to apply changes. HTTPS required, except HTTP loopback origins."
+          "order": 2,
+          "description": "%duration.description%"
         }
       }
     },
@@ -117,7 +82,7 @@
         "id": "easelian.remote-device-hub.chat",
         "name": "remote-device-hub",
         "fullName": "Remote Device Hub",
-        "description": "Describe a remote device task, such as \"List my authorized devices\" or \"Check free disk space on a device\"",
+        "description": "%chat.description%",
         "isSticky": true
       }
     ],
@@ -130,22 +95,27 @@
     "commands": [
       {
         "command": "rdh.signIn",
-        "title": "Sign In",
+        "title": "%command.signIn%",
         "category": "Remote Device Hub"
       },
       {
         "command": "rdh.signOut",
-        "title": "Sign Out",
+        "title": "%command.signOut%",
         "category": "Remote Device Hub"
       },
       {
         "command": "rdh.showStatus",
-        "title": "Show Status",
+        "title": "%command.showStatus%",
         "category": "Remote Device Hub"
       },
       {
         "command": "rdh.showLogs",
-        "title": "Show Logs",
+        "title": "%command.showLogs%",
+        "category": "Remote Device Hub"
+      },
+      {
+        "command": "rdh.setChatPermissions",
+        "title": "%command.setChatPermissions%",
         "category": "Remote Device Hub"
       }
     ]
@@ -167,5 +137,6 @@
     "@types/vscode": "^1.105.0",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.6.0"
-  }
+  },
+  "l10n": "./l10n"
 }

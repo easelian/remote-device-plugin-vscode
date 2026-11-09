@@ -6,7 +6,7 @@ const {
 } = require('../out/deploymentDefaults');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { resolveDeployment, userDeploymentValue } = require('../out/authConfig');
+const { resolveDeployment } = require('../out/authConfig');
 const { PUBLIC_URL, MCP_PUBLIC_URL } = require('../out/deploymentDefaults');
 const { CredentialStore } = require('../out/credentialStore');
 const { harness, freshToken, until, tick } = require('./helpers/authHarness.cjs');
@@ -56,24 +56,6 @@ test('deployment rejects ambiguous or unsafe credential destinations', () => {
   for (const value of ['http://localhost:8090', 'http://127.0.0.1:8090', 'http://[::1]:8090']) {
     assert.equal(resolveDeployment({ mcpPublicUrl: value }).mcpOrigin, value);
   }
-});
-
-test('workspace and language overrides cannot select the credential destination', () => {
-  assert.equal(
-    userDeploymentValue({
-      workspaceValue: 'https://evil.example',
-      workspaceFolderValue: 'https://evil.example',
-    }),
-    undefined,
-  );
-  assert.equal(
-    userDeploymentValue({
-      globalValue: 'https://user.example',
-      workspaceValue: 'https://evil.example',
-      globalLanguageValue: 'https://evil.example',
-    }),
-    'https://user.example',
-  );
 });
 
 test('tokens, history, recovery keys and notifications are isolated from other deployments and unscoped storage', async () => {
@@ -126,15 +108,9 @@ test('tokens, history, recovery keys and notifications are isolated from other d
   assert.equal(changes, 2);
 });
 
-test('User configuration governs browser authorization, token exchange, resource and MCP', async (t) => {
+test('packaged deployment governs browser authorization, token exchange, resource and MCP', async (t) => {
   const h = harness(t, {
-    configuration: {
-      publicUrl: { globalValue: 'https://website.example' },
-      mcpPublicUrl: {
-        globalValue: 'https://hub.example:9443',
-        workspaceValue: 'https://evil.example',
-      },
-    },
+    deployment: { publicUrl: 'https://website.example', mcpPublicUrl: 'https://hub.example:9443' },
   });
   await until(() => h.token);
   assert.equal(h.opens[0].origin, 'https://hub.example:9443');
@@ -151,7 +127,30 @@ test('User configuration governs browser authorization, token exchange, resource
   }
 });
 
-test('deployment edits remain pinned until reload and workspace-only changes are ignored', async (t) => {
+test('User, Remote and workspace endpoint settings cannot redirect credentials', async (t) => {
+  const h = harness(t, {
+    configuration: {
+      publicUrl: { globalValue: 'https://evil.example' },
+      mcpPublicUrl: {
+        globalValue: 'https://evil.example',
+        workspaceValue: 'https://evil.example',
+        workspaceFolderValue: 'https://evil.example',
+        globalLanguageValue: 'https://evil.example',
+      },
+    },
+  });
+  await until(() => h.token);
+  assert.equal(h.opens[0].origin, MCP_PUBLIC_URL);
+  assert.equal(h.chatDeps.endpoint, MCP_PUBLIC_URL + '/mcp');
+  assert.equal((await h.provider.resolveMcpServerDefinition()).uri.origin, MCP_PUBLIC_URL);
+  await h.commands.get('rdh.signOut')();
+  assert.ok(h.requests.every((request) => new URL(request.url).origin === MCP_PUBLIC_URL));
+  const properties = require('../package.json').contributes.configuration.properties;
+  assert.equal(properties['remoteDeviceHub.publicUrl'], undefined);
+  assert.equal(properties['remoteDeviceHub.mcpPublicUrl'], undefined);
+});
+
+test('obsolete endpoint settings do not prompt for reload or change an active deployment', async (t) => {
   const h = harness(t, { token: freshToken() });
   await until(() => h.requests.length);
   h.changeConfiguration('mcpPublicUrl', { workspaceValue: 'https://evil.example' });
@@ -162,7 +161,10 @@ test('deployment edits remain pinned until reload and workspace-only changes are
   );
   h.changeConfiguration('mcpPublicUrl', { globalValue: 'https://next.example' });
   await tick();
-  assert.ok(h.messages.some((message) => message.includes('until you reload')));
+  assert.equal(
+    h.messages.some((message) => message.includes('until you reload')),
+    false,
+  );
   await h.commands.get('rdh.signOut')();
   assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
   assert.equal(h.chatDeps.endpoint, MCP_PUBLIC_URL + '/mcp');
@@ -171,7 +173,7 @@ test('deployment edits remain pinned until reload and workspace-only changes are
 test('an in-flight refresh stays on its original deployment after settings change', async (t) => {
   let finish;
   const h = harness(t, {
-    configuration: { mcpPublicUrl: { globalValue: 'https://first.example' } },
+    deployment: { mcpPublicUrl: 'https://first.example' },
     token: { ...freshToken(), _issuer: 'https://first.example/', _got_at: 0 },
     recovery: true,
     onRefresh: () =>

@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { PUBLIC_URL, MCP_PUBLIC_URL } from './deploymentDefaults';
 
 export interface DeploymentConfig {
@@ -7,12 +7,6 @@ export interface DeploymentConfig {
   readonly mcpUri: string;
   readonly resource: string;
   readonly credentialNamespace: string;
-}
-
-// Only User/Remote values may choose where credentials are sent. Never use
-// configuration.get(), which can include a repository's workspace settings.
-export function userDeploymentValue(setting: { globalValue?: unknown } | undefined): unknown {
-  return setting?.globalValue;
 }
 
 function origin(value: unknown, fallback: string, name: string): string {
@@ -49,8 +43,8 @@ function origin(value: unknown, fallback: string, name: string): string {
 export function resolveDeployment(
   values: { publicUrl?: unknown; mcpPublicUrl?: unknown } = {},
 ): DeploymentConfig {
-  const publicUrl = origin(values.publicUrl, PUBLIC_URL, 'remoteDeviceHub.publicUrl');
-  const mcpOrigin = origin(values.mcpPublicUrl, MCP_PUBLIC_URL, 'remoteDeviceHub.mcpPublicUrl');
+  const publicUrl = origin(values.publicUrl, PUBLIC_URL, 'Packaged public URL');
+  const mcpOrigin = origin(values.mcpPublicUrl, MCP_PUBLIC_URL, 'Packaged MCP URL');
   const mcpUri = `${mcpOrigin}/mcp`;
   return Object.freeze({
     publicUrl,

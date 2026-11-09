@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { AuthSession } from './authSession';
 import { CredentialError, msg } from './authErrors';
-import { resolveDeployment, userDeploymentValue, type DeploymentConfig } from './authConfig';
+import { resolveDeployment, type DeploymentConfig } from './authConfig';
 import { registerChat } from './chat';
 import { isRecord, type TokenSet } from './boundaries';
 
@@ -18,43 +18,15 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(log);
   let deployment: DeploymentConfig;
   try {
-    deployment = readDeployment();
+    deployment = resolveDeployment();
   } catch (error) {
     void vscode.window.showErrorMessage(
-      `Remote Device Hub: ${msg(error)}. Correct User or Remote settings and reload the window.`,
+      `Remote Device Hub: ${msg(error)}. Reinstall the extension with valid deployment defaults.`,
     );
     return;
   }
   const auth = new AuthSession(context, log, deployment);
   log.info(`MCP origin: ${deployment.mcpOrigin}; website: ${deployment.publicUrl}`);
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((event) => {
-      if (
-        !event.affectsConfiguration('remoteDeviceHub.publicUrl') &&
-        !event.affectsConfiguration('remoteDeviceHub.mcpPublicUrl')
-      ) {
-        return;
-      }
-      try {
-        const next = readDeployment();
-        if (next.publicUrl === deployment.publicUrl && next.mcpOrigin === deployment.mcpOrigin) {
-          return;
-        }
-      } catch {
-        // Invalid new settings also require correction and a reload.
-      }
-      void vscode.window
-        .showWarningMessage(
-          `Remote Device Hub deployment settings changed. This window continues using ${deployment.mcpOrigin} until you reload.`,
-          'Reload Window',
-        )
-        .then((choice) => {
-          if (choice === 'Reload Window') {
-            void vscode.commands.executeCommand('workbench.action.reloadWindow');
-          }
-        });
-    }),
-  );
   context.subscriptions.push(
     vscode.commands.registerCommand('rdh.signIn', () => auth.signIn(true)),
     vscode.commands.registerCommand('rdh.signOut', () => auth.signOut()),
@@ -154,12 +126,4 @@ function makeServer(deployment: DeploymentConfig, t?: TokenSet): vscode.McpHttpS
     vscode.Uri.parse(deployment.mcpUri),
     t ? { Authorization: `Bearer ${t.access_token}` } : undefined,
   );
-}
-
-function readDeployment(): DeploymentConfig {
-  const settings = vscode.workspace.getConfiguration('remoteDeviceHub');
-  return resolveDeployment({
-    publicUrl: userDeploymentValue(settings.inspect('publicUrl')),
-    mcpPublicUrl: userDeploymentValue(settings.inspect('mcpPublicUrl')),
-  });
 }

@@ -12,6 +12,10 @@ function setup(options = {}) {
   const sources = [];
   const configurationListeners = new Set();
   const timers = new Map();
+  const commands = new Map();
+  const permissionPickers = [];
+  const settingsUpdates = [];
+  const errors = [];
   function tokenSource() {
     const listeners = new Set();
     const token = {
@@ -72,6 +76,8 @@ function setup(options = {}) {
     }
   }
   const vscode = {
+    ConfigurationTarget: { Global: 1 },
+    l10n: require('./helpers/localization.cjs').localization(options.language),
     CancellationTokenSource: class {
       constructor() {
         const source = tokenSource();
@@ -98,7 +104,27 @@ function setup(options = {}) {
         return participant;
       },
     },
+    commands: {
+      registerCommand(name, handler) {
+        commands.set(name, handler);
+        return { dispose: () => commands.delete(name) };
+      },
+    },
     window: {
+      async showQuickPick(items, pickerOptions, cancellation) {
+        permissionPickers.push({
+          items: structuredClone(items),
+          options: pickerOptions,
+          cancellation,
+        });
+        if (options.onQuickPick) {
+          return options.onQuickPick(items, pickerOptions, cancellation);
+        }
+        return items.find((item) => item.value === options.pickPermission);
+      },
+      async showErrorMessage(message) {
+        errors.push(message);
+      },
       async showWarningMessage(...args) {
         confirmations.push(args);
         if (options.cancelOnConfirm) {
@@ -117,6 +143,21 @@ function setup(options = {}) {
               globalValue: options.config?.[key],
               workspaceValue: options.workspaceConfig?.[key],
             };
+          },
+          async update(key, value, target) {
+            if (options.updateError) {
+              throw new Error('settings cannot be written');
+            }
+            settingsUpdates.push({ key, value, target });
+            options.config = { ...options.config, [key]: value };
+            if (!options.deferConfigurationEvent) {
+              for (const fn of [...configurationListeners]) {
+                fn({ affectsConfiguration: (name) => name === `remoteDeviceHub.chat.${key}` });
+              }
+            }
+            if (options.afterUpdate) {
+              await options.afterUpdate();
+            }
           },
         };
       },
@@ -280,10 +321,14 @@ function setup(options = {}) {
     sources,
     configurationListeners,
     timers,
+    commands,
+    permissionPickers,
+    settingsUpdates,
+    errors,
     vscode,
-    changeConfiguration() {
+    changeConfiguration(key = 'permissions') {
       for (const fn of [...configurationListeners]) {
-        fn({ affectsConfiguration: (key) => key === 'remoteDeviceHub.chat' });
+        fn({ affectsConfiguration: (name) => name === `remoteDeviceHub.chat.${key}` });
       }
     },
     fireTimers() {
@@ -315,6 +360,42 @@ test('manifest and participant register the same @ entry', () => {
   assert.equal(m.contributes.chatParticipants[0].commands, undefined);
   assert.equal(h.participant.followupProvider, undefined);
   assert.equal(context.subscriptions[0], h.participant);
+  assert.ok(h.commands.has('rdh.setChatPermissions'));
+  assert.ok(m.contributes.commands.some((command) => command.command === 'rdh.setChatPermissions'));
+});
+
+test('permissions picker writes the selected mode to User or Remote settings', async () => {
+  const options = { pickPermission: 'full-access' };
+  const h = setup(options);
+  h.exports.registerChat({ subscriptions: [] }, h.deps);
+  await h.commands.get('rdh.setChatPermissions')();
+  assert.deepEqual(h.settingsUpdates, [{ key: 'permissions', value: 'full-access', target: 1 }]);
+  assert.match(h.permissionPickers[0].options.placeHolder, /Copilot Agent uses VS Code/);
+  assert.deepEqual(
+    h.permissionPickers[0].items.map((item) => item.value),
+    ['read-only', 'ask', 'full-access'],
+  );
+  assert.match(h.permissionPickers[0].items[1].description, /^Current:/);
+  options.responses = [[new h.Call('c1', 'start_process', { device_id: 'device' })]];
+  await h.run();
+  assert.equal(h.confirmations.length, 0);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
+});
+
+test('canceling the picker, reselecting the current mode, and untrusted full access do not change permissions', async () => {
+  for (const options of [
+    {},
+    { pickPermission: 'ask' },
+    { pickPermission: 'full-access', trusted: false },
+  ]) {
+    const h = setup(options);
+    h.exports.registerChat({ subscriptions: [] }, h.deps);
+    await h.commands.get('rdh.setChatPermissions')();
+    assert.deepEqual(h.settingsUpdates, []);
+    if (options.trusted === false) {
+      assert.match(h.errors[0], /Trust this workspace/);
+    }
+  }
 });
 
 test('stateless discovery is reused only for the same endpoint and credential', async () => {
@@ -391,7 +472,7 @@ test('write and shell calls are not dispatched when confirmation is declined', a
 });
 test('confirmed shell call is dispatched once and cancellation before dispatch prevents it', async () => {
   for (const cancelled of [false, true]) {
-    const options = { confirm: 'Run', cancelOnConfirm: cancelled };
+    const options = { confirm: 'Run Once', cancelOnConfirm: cancelled };
     const h = setup(options);
     options.responses = [
       [new h.Call('c1', 'start_process', { device_id: 'device', command: 'echo test' })],
@@ -463,10 +544,8 @@ test('empty requests show a natural-language hint without network or model calls
   assert.equal(h.modelRequests.length, 0);
 });
 
-const automatic = (overrides = {}) => ({
-  executionMode: 'automatic',
-  automaticDevices: ['device'],
-  automaticTools: ['start_process'],
+const fullAccess = (overrides = {}) => ({
+  permissions: 'full-access',
   ...overrides,
 });
 function assertClean(h) {
@@ -519,8 +598,8 @@ function assertCompleteExchanges(messages) {
   }
 }
 
-test('automatic mode completes 35 iterations without confirmation prompts', async () => {
-  const options = { config: automatic() };
+test('Full access completes 35 iterations without confirmation prompts', async () => {
+  const options = { config: fullAccess() };
   const h = setup(options);
   options.responses = Array.from({ length: 35 }, (_, i) => [
     new h.Call(`c${i}`, 'start_process', { device_id: 'device', command: `echo ${i}` }),
@@ -553,37 +632,25 @@ test('automatic mode completes 35 iterations without confirmation prompts', asyn
   assertClean(h);
 });
 
-test('automatic mode stops out-of-scope tools and devices without opening a modal', async () => {
-  for (const [name, input] of [
-    ['start_process', { device_id: 'other-device', command: 'echo no' }],
-    ['write_file', { device_id: 'device', path: 'x', content: 'no' }],
-    ['device_info', { device_id: 'other-device' }],
-    ['start_process', { command: 'missing device' }],
-  ]) {
-    const options = {
-      config: automatic(),
-      tools: ['list_devices', 'start_process', 'write_file', 'device_info'],
-    };
-    const h = setup(options);
-    options.responses = [[new h.Call('c1', name, input)]];
-    await h.run();
-    assert.equal(h.confirmations.length, 0);
-    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
-    assert.match(h.text.join(''), /Stopped:.*(automaticDevices|automaticTools)/);
-    assertClean(h);
-  }
-});
-
-test('automatic reads are limited to allowed devices while global discovery remains available', async () => {
+test('Full access permits advertised device and global tools without maintaining allowlists', async () => {
   const options = {
-    config: automatic({ automaticTools: [] }),
-    tools: ['list_devices', 'device_info', 'read_process'],
+    config: fullAccess(),
+    tools: [
+      'write_file',
+      'prepare_operation',
+      {
+        name: 'activate_account',
+        inputSchema: { type: 'object', properties: {} },
+      },
+    ],
   };
   const h = setup(options);
   options.responses = [
-    [new h.Call('a', 'list_devices', {})],
-    [new h.Call('b', 'device_info', { device_id: 'device' })],
-    [new h.Call('c', 'read_process', { device_id: 'device', job_id: 'job' })],
+    [
+      new h.Call('a', 'prepare_operation', { device_id: 'first-device' }),
+      new h.Call('b', 'write_file', { device_id: 'second-device', path: 'x', content: 'ok' }),
+      new h.Call('c', 'activate_account', {}),
+    ],
   ];
   await h.run();
   assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 3);
@@ -591,60 +658,108 @@ test('automatic reads are limited to allowed devices while global discovery rema
   assertClean(h);
 });
 
-test('recovery queries are read-only but still require an allowed device', async () => {
-  const tools = ['get_call_status', 'list_calls', 'get_operation_status', 'list_operations'];
-  const options = { config: automatic({ automaticTools: [] }), tools };
+test('Read only exposes inspection and recovery tools and never prompts for them', async () => {
+  const tools = [
+    'list_devices',
+    'device_info',
+    'read_file',
+    'get_call_status',
+    'list_calls',
+    'get_operation_status',
+    'list_operations',
+  ];
+  const options = {
+    config: { permissions: 'read-only' },
+    tools: [...tools, 'write_file', 'start_process', 'prepare_operation'],
+  };
   const h = setup(options);
   options.responses = tools.map((name, i) => [new h.Call(`r${i}`, name, { device_id: 'device' })]);
   await h.run();
+  assert.deepEqual(
+    Array.from(h.modelRequests[0].requestOptions.tools, (tool) => tool.name),
+    tools,
+  );
   assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, tools.length);
   assert.equal(h.confirmations.length, 0);
   assertClean(h);
-
-  const deniedOptions = { config: automatic({ automaticTools: [] }), tools: ['list_calls'] };
-  const denied = setup(deniedOptions);
-  deniedOptions.responses = [[new denied.Call('denied', 'list_calls', { device_id: 'other' })]];
-  await denied.run();
-  assert.equal(denied.calls.filter((call) => call.method === 'tools/call').length, 0);
-  assert.match(denied.text.join(''), /automaticDevices/);
-  assertClean(denied);
 });
 
-test('operation preparation still requires explicit automatic-mode permission', async () => {
-  const options = {
-    config: automatic({ automaticTools: [] }),
-    tools: ['prepare_operation'],
-  };
+test('Read only blocks side effects even when a model requests a tool it was not offered', async () => {
+  for (const name of [
+    'start_process',
+    'write_file',
+    'prepare_operation',
+    'activate_account',
+    'unknown_tool',
+  ]) {
+    const options = { config: { permissions: 'read-only' }, tools: [name] };
+    const h = setup(options);
+    options.responses = [[new h.Call('a', name, { device_id: 'device' })]];
+    await h.run();
+    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+    assert.equal(h.confirmations.length, 0);
+    assert.match(h.text.join(''), /Read only permissions/);
+    assertClean(h);
+  }
+});
+
+test('Run Once approves only the displayed call', async () => {
+  const options = { confirm: 'Run Once' };
   const h = setup(options);
-  options.responses = [[new h.Call('prepare', 'prepare_operation', { device_id: 'device' })]];
-  await h.run();
-  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
-  assert.match(h.text.join(''), /automaticTools/);
-  assertClean(h);
-});
-
-test('a fabricated device argument cannot authorize a global mutation in automatic mode', async () => {
-  const options = {
-    config: automatic({ automaticTools: ['activate_account'] }),
-    tools: [
-      { name: 'activate_account', inputSchema: { type: 'object', properties: {}, required: [] } },
+  options.responses = [
+    [
+      new h.Call('a', 'start_process', { device_id: 'device', command: 'first' }),
+      new h.Call('b', 'start_process', { device_id: 'device', command: 'second' }),
     ],
-  };
-  const h = setup(options);
-  options.responses = [[new h.Call('c1', 'activate_account', { device_id: 'device' })]];
+  ];
   await h.run();
-  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
-  assert.match(h.text.join(''), /does not declare a required device_id/);
-  assert.equal(h.confirmations.length, 0);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 2);
+  assert.equal(h.confirmations.length, 2);
   assertClean(h);
 });
 
-test('workspace settings cannot grant automatic execution or override user budgets', async () => {
-  const options = {
-    workspaceConfig: automatic({ maxToolCalls: 0 }),
-    config: { maxToolCalls: 1 },
-    confirm: 'Run',
-  };
+test('choosing Full access in the approval picker saves permissions and continues this and later requests', async () => {
+  for (const deferConfigurationEvent of [false, true]) {
+    const options = {
+      confirm: 'Approval Options…',
+      pickPermission: 'full-access',
+      deferConfigurationEvent,
+    };
+    const h = setup(options);
+    options.responses = [
+      [new h.Call('a', 'start_process', { device_id: 'device' })],
+      [new h.Call('b', 'start_process', { device_id: 'device' })],
+      [new h.Text('done')],
+      [new h.Call('c', 'start_process', { device_id: 'device' })],
+    ];
+    options.onFetch = (body) => {
+      if (body.method === 'tools/call' && deferConfigurationEvent) {
+        h.changeConfiguration();
+      }
+    };
+    await h.run();
+    await h.run();
+    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 3);
+    assert.equal(h.confirmations.length, 1);
+    assert.equal(h.permissionPickers.length, 1);
+    assert.deepEqual(h.settingsUpdates, [{ key: 'permissions', value: 'full-access', target: 1 }]);
+    assertClean(h);
+  }
+});
+
+test('choosing Read only persists it and blocks the pending change', async () => {
+  const options = { confirm: 'Approval Options…', pickPermission: 'read-only' };
+  const h = setup(options);
+  options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+  await h.run();
+  assert.equal(options.config.permissions, 'read-only');
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assert.match(h.text.join(''), /Operation canceled/);
+  assertClean(h);
+});
+
+test('Ask for approval in the picker runs once without granting future calls', async () => {
+  const options = { confirm: 'Approval Options…', pickPermission: 'ask' };
   const h = setup(options);
   options.responses = [
     [
@@ -653,23 +768,264 @@ test('workspace settings cannot grant automatic execution or override user budge
     ],
   ];
   await h.run();
-  assert.equal(h.confirmations.length, 1);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 2);
+  assert.equal(h.confirmations.length, 2);
+  assert.equal(h.permissionPickers.length, 2);
+  assert.equal(h.settingsUpdates.length, 0);
+  assertClean(h);
+});
+
+test('canceling the options list or failing to save Full access sends no operation', async () => {
+  for (const extra of [
+    {},
+    { pickPermission: 'full-access', updateError: true },
+    { pickPermission: 'full-access', trusted: false },
+  ]) {
+    const options = { confirm: 'Approval Options…', ...extra };
+    const h = setup(options);
+    options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+    await h.run();
+    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+    assert.equal(h.settingsUpdates.length, 0);
+    if (extra.updateError) {
+      assert.match(h.text.join(''), /Could not save/);
+    }
+    assertClean(h);
+  }
+});
+
+test('a concurrent permission reduction while saving a mode prevents dispatch', async () => {
+  const options = { confirm: 'Approval Options…', pickPermission: 'full-access' };
+  const h = setup(options);
+  options.afterUpdate = () => {
+    options.config.permissions = 'read-only';
+    h.changeConfiguration();
+  };
+  options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+  await h.run();
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assert.match(h.text.join(''), /settings changed/);
+  assertClean(h);
+});
+
+test('approval prompts, future permission choices and settings guidance follow the VS Code language', async () => {
+  for (const [language, optionsLabel, runLabel, fullLabel] of [
+    ['en', 'Approval Options…', 'Run Once', 'Full access'],
+    ['zh-cn', '选择后续审批方式…', '仅运行一次', '完全访问'],
+    ['zh-tw', '選擇後續核准方式…', '僅執行一次', '完整存取'],
+  ]) {
+    const options = { language, confirm: optionsLabel, pickPermission: 'full-access' };
+    const h = setup(options);
+    options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+    await h.run();
+    assert.deepEqual(Array.from(h.confirmations[0].slice(2)), [runLabel, optionsLabel]);
+    assert.match(h.confirmations[0][1].detail, /Settings/);
+    assert.match(h.confirmations[0][1].detail, /remoteDeviceHub\.chat\.permissions/);
+    assert.equal(
+      h.permissionPickers[0].items.find((item) => item.value === 'full-access').label,
+      fullLabel,
+    );
+    assert.equal(h.permissionPickers[0].cancellation, h.sources[0].token);
+    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
+    if (language !== 'en') {
+      assert.match(h.confirmations[0][0], /允许|允許/);
+    }
+    assertClean(h);
+  }
+});
+
+test('a task grant covers subsequent operations on that device and asks again for another device', async () => {
+  let prompts = 0;
+  const options = {
+    tools: ['prepare_operation', 'start_process', 'write_file'],
+    pickPermission: 'device-task',
+    onConfirm: () => (++prompts === 1 ? 'Approval Options…' : undefined),
+  };
+  const h = setup(options);
+  options.responses = [
+    [new h.Call('a', 'prepare_operation', { device_id: 'first' })],
+    [
+      new h.Call('b', 'start_process', { device_id: 'first' }),
+      new h.Call('c', 'write_file', { device_id: 'first' }),
+    ],
+    [new h.Call('d', 'start_process', { device_id: 'second' })],
+  ];
+  await h.run();
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 3);
+  assert.equal(h.confirmations.length, 2);
+  assert.match(h.permissionPickers[0].items[0].description, /first until this request ends/);
+  assert.match(h.confirmations[1][1].detail, /second/);
+  assertClean(h);
+});
+
+test('task grants expire when the request ends', async () => {
+  let prompts = 0;
+  const options = {
+    pickPermission: 'device-task',
+    onConfirm: () => (++prompts === 1 ? 'Approval Options…' : undefined),
+  };
+  const h = setup(options);
+  options.responses = [
+    [new h.Call('first', 'start_process', { device_id: 'device' })],
+    [new h.Text('done')],
+    [new h.Call('second', 'start_process', { device_id: 'device' })],
+  ];
+  await h.run();
+  await h.run();
   assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
-  assert.match(h.text.join(''), /tool call budget \(1\)/);
+  assert.equal(h.confirmations.length, 2);
+  assertClean(h);
+});
+
+test('overlapping requests do not share a task device grant', async () => {
+  const dispatched = deferred();
+  const response = deferred();
+  let prompts = 0;
+  const options = {
+    pickPermission: 'device-task',
+    onConfirm: () => (++prompts === 1 ? 'Approval Options…' : undefined),
+    onFetch(body) {
+      if (body.method === 'tools/call') {
+        dispatched.resolve();
+        return response.promise.then(() =>
+          Response.json({
+            jsonrpc: '2.0',
+            id: body.id,
+            result: { content: [] },
+          }),
+        );
+      }
+    },
+  };
+  const h = setup(options);
+  options.responses = [
+    [new h.Call('first', 'start_process', { device_id: 'device' })],
+    [new h.Call('second', 'start_process', { device_id: 'device' })],
+    [new h.Text('done')],
+  ];
+  const first = h.run();
+  await dispatched.promise;
+  await h.run();
+  response.resolve();
+  await first;
+  assert.equal(h.confirmations.length, 2);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
+  assertClean(h);
+});
+
+test('a task device grant cannot authorize a global operation with a fabricated device argument', async () => {
+  const options = {
+    confirm: 'Approval Options…',
+    pickPermission: 'device-task',
+    tools: [
+      'start_process',
+      {
+        name: 'activate_account',
+        inputSchema: { type: 'object', properties: {} },
+      },
+    ],
+  };
+  const h = setup(options);
+  options.responses = [
+    [
+      new h.Call('a', 'start_process', { device_id: 'device' }),
+      new h.Call('b', 'activate_account', { device_id: 'device' }),
+    ],
+  ];
+  await h.run();
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
+  assert.equal(h.confirmations.length, 2);
+  assert.ok(h.permissionPickers[1].items.every((item) => item.value !== 'device-task'));
+  assertClean(h);
+});
+
+test('untrusted workspaces and ambiguous device schemas offer only single-call approval', async () => {
+  for (const extra of [
+    { trusted: false },
+    {
+      tools: [
+        {
+          name: 'start_process',
+          inputSchema: { type: 'object', properties: { device_id: { type: 'string' } } },
+        },
+      ],
+    },
+    {
+      tools: [
+        {
+          name: 'start_process',
+          inputSchema: {
+            type: 'object',
+            properties: { device_id: { type: 'number' } },
+            required: ['device_id'],
+          },
+        },
+      ],
+    },
+  ]) {
+    const options = { confirm: 'Approval Options…', pickPermission: 'device-task', ...extra };
+    const h = setup(options);
+    options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+    await h.run();
+    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+    assert.ok(h.permissionPickers[0].items.every((item) => item.value !== 'device-task'));
+    assertClean(h);
+  }
+});
+
+test('workspace settings cannot grant Full access or disable the user time limit', async () => {
+  const options = {
+    workspaceConfig: fullAccess({ maxDurationMinutes: 0 }),
+    config: { maxDurationMinutes: 1 },
+    manualTimers: true,
+    confirm: 'Run Once',
+  };
+  const h = setup(options);
+  options.onConfirm = () => {
+    assert.ok([...h.timers.values()].some((timer) => timer.ms === 60_000));
+    return 'Run Once';
+  };
+  options.responses = [
+    [
+      new h.Call('a', 'start_process', { device_id: 'device' }),
+      new h.Call('b', 'start_process', { device_id: 'device' }),
+    ],
+  ];
+  await h.run();
+  assert.equal(h.confirmations.length, 2);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 2);
   const properties = require('../package.json').contributes.configuration.properties;
+  assert.deepEqual(Object.keys(properties), [
+    'remoteDeviceHub.chat.permissions',
+    'remoteDeviceHub.chat.maxDurationMinutes',
+  ]);
   for (const property of Object.values(properties)) {
     assert.equal(property.scope, 'machine');
   }
   assertClean(h);
 });
 
-test('automatic execution fails closed for untrusted workspaces and malformed grants', async () => {
+test('obsolete automatic settings do not implicitly enable Full access', async () => {
+  const options = {
+    config: {
+      executionMode: 'automatic',
+      automaticDevices: ['device'],
+      automaticTools: ['start_process'],
+    },
+  };
+  const h = setup(options);
+  options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+  await h.run();
+  assert.equal(h.confirmations.length, 1);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assertClean(h);
+});
+
+test('Full access fails closed for untrusted workspaces and invalid settings', async () => {
   for (const options of [
-    { config: automatic(), trusted: false },
-    { config: automatic({ automaticDevices: ['*'] }) },
-    { config: automatic({ automaticTools: 'start_process' }) },
-    { config: { executionMode: 'typo' } },
-    { config: { maxDurationMinutes: -1 } },
+    { config: fullAccess(), trusted: false },
+    { config: { permissions: 'typo' } },
+    ...[-1, 1.5, 1441, Infinity, '60'].map((value) => ({ config: { maxDurationMinutes: value } })),
   ]) {
     const h = setup(options);
     await h.run();
@@ -680,29 +1036,11 @@ test('automatic execution fails closed for untrusted workspaces and malformed gr
   }
 });
 
-test('model and tool budgets stop before additional dispatch', async () => {
-  for (const [budget, expectedTurns, expectedCalls] of [
-    [{ maxModelTurns: 2 }, 2, 2],
-    [{ maxToolCalls: 2 }, 3, 2],
-  ]) {
-    const options = { config: automatic(budget) };
-    const h = setup(options);
-    options.responses = Array.from({ length: 6 }, (_, i) => [
-      new h.Call(`c${i}`, 'start_process', { device_id: 'device' }),
-    ]);
-    await h.run();
-    assert.equal(h.modelRequests.length, expectedTurns);
-    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, expectedCalls);
-    assert.match(h.text.join(''), /budget \(2\)/);
-    assertClean(h);
-  }
-});
-
 test('cancellation interrupts an uncooperative model and ignores its late tool response', async () => {
   const entered = deferred();
   const late = deferred();
   const options = {
-    config: automatic(),
+    config: fullAccess(),
     sendRequest() {
       entered.resolve();
       return late.promise;
@@ -766,8 +1104,32 @@ test('cancellation stops waiting for confirmation without dispatching a late app
   await entered.promise;
   h.cancel();
   await settles(running);
-  late.resolve('Run');
+  late.resolve('Approval Options…');
   await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assertClean(h);
+});
+
+test('cancellation dismisses the permission picker and ignores its late Full access choice', async () => {
+  const entered = deferred();
+  const late = deferred();
+  const options = {
+    confirm: 'Approval Options…',
+    onQuickPick(items) {
+      entered.resolve(items.find((item) => item.value === 'full-access'));
+      return late.promise;
+    },
+  };
+  const h = setup(options);
+  options.responses = [[new h.Call('a', 'start_process', { device_id: 'device' })]];
+  const running = h.run();
+  const decision = await entered.promise;
+  h.cancel();
+  await settles(running);
+  late.resolve(decision);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(h.permissionPickers[0].cancellation.isCancellationRequested, true);
+  assert.equal(h.settingsUpdates.length, 0);
   assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
   assertClean(h);
 });
@@ -776,7 +1138,7 @@ test('deadline and configuration changes stop a pending model instead of waiting
   for (const stop of ['deadline', 'configuration']) {
     const entered = deferred();
     const options = {
-      config: automatic({ maxDurationMinutes: 1 }),
+      config: fullAccess({ maxDurationMinutes: 1 }),
       manualTimers: true,
       sendRequest() {
         entered.resolve();
@@ -789,6 +1151,7 @@ test('deadline and configuration changes stop a pending model instead of waiting
     if (stop === 'deadline') {
       h.fireTimers();
     } else {
+      options.config.permissions = 'read-only';
       h.changeConfiguration();
     }
     await settles(running);
@@ -798,8 +1161,36 @@ test('deadline and configuration changes stop a pending model instead of waiting
   }
 });
 
+test('changing permissions through the picker cancels a pending run before its late tool call', async () => {
+  const entered = deferred();
+  const late = deferred();
+  const options = {
+    config: fullAccess(),
+    pickPermission: 'read-only',
+    sendRequest() {
+      entered.resolve();
+      return late.promise;
+    },
+  };
+  const h = setup(options);
+  h.exports.registerChat({ subscriptions: [] }, h.deps);
+  const running = h.run();
+  await entered.promise;
+  await h.commands.get('rdh.setChatPermissions')();
+  await settles(running);
+  late.resolve({
+    stream: (async function* () {
+      yield new h.Call('late', 'start_process', { device_id: 'device' });
+    })(),
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(h.text.join(''), /settings changed/);
+  assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 0);
+  assertClean(h);
+});
+
 test('deadline is checked again before a model tool call can be dispatched', async () => {
-  const options = { config: automatic({ maxDurationMinutes: 1 }), now: 1000 };
+  const options = { config: fullAccess({ maxDurationMinutes: 1 }), now: 1000 };
   const h = setup(options);
   options.sendRequest = async () => {
     options.now += 60_001;
@@ -819,7 +1210,7 @@ test('cancellation aborts an in-flight RPC, never retries it, and stops the loop
   const entered = deferred();
   let signal;
   const options = {
-    config: automatic(),
+    config: fullAccess(),
     onFetch(body, init) {
       if (body.method !== 'tools/call') {
         return;
@@ -857,6 +1248,57 @@ test('cancellation while retrieving credentials prevents a late HTTP dispatch', 
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(h.calls.length, 0);
   assertClean(h);
+});
+
+test('an RPC deadline stops waiting for uncooperative headers or body without replay', async () => {
+  for (const phase of ['headers', 'body']) {
+    const entered = deferred();
+    const late = deferred();
+    let signal;
+    const options = {
+      manualTimers: true,
+      config: fullAccess(),
+      onFetch(body, init) {
+        if (body.method !== 'tools/call') {
+          return;
+        }
+        signal = init.signal;
+        if (phase === 'headers') {
+          entered.resolve();
+          return late.promise;
+        }
+        return new Response(
+          new ReadableStream({
+            async pull(stream) {
+              entered.resolve();
+              await late.promise;
+              stream.close();
+            },
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      },
+    };
+    const h = setup(options);
+    const operationId = 'a'.repeat(32);
+    options.responses = [
+      [new h.Call('c1', 'start_process', { device_id: 'device', operation_id: operationId })],
+    ];
+    const running = h.run();
+    await entered.promise;
+    const deadline = [...h.timers.values()].find((timer) => timer.ms === 60_000);
+    assert.ok(deadline);
+    deadline.fn();
+    await settles(running);
+    assert.equal(signal.aborted, true);
+    assert.match(h.text.join(''), /tools\/call timed out.*check its status/);
+    assert.ok(h.logs.some((line) => line.includes(`outcome=unconfirmed operation=${operationId}`)));
+    late.resolve(Response.json({ jsonrpc: '2.0', result: {}, id: 4 }));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
+    assert.equal(h.modelRequests.length, 1);
+    assertClean(h);
+  }
 });
 
 test('large results are explicitly partial, preserve errors, and fit model input', async () => {
@@ -932,7 +1374,7 @@ test('an oversized task is rejected before model dispatch rather than silently d
 
 test('run logs contain outcomes and counts without commands, file data, or credentials', async () => {
   const options = {
-    config: automatic(),
+    config: fullAccess(),
     toolResult: () => ({ content: [{ type: 'text', text: 'private-result' }] }),
   };
   const h = setup(options);
@@ -963,7 +1405,7 @@ test('run logs contain outcomes and counts without commands, file data, or crede
 });
 
 test('a second request does not inherit the earlier run permission snapshot', async () => {
-  const options = { config: automatic() };
+  const options = { config: fullAccess() };
   const h = setup(options);
   options.responses = [
     [new h.Call('first', 'start_process', { device_id: 'device' })],
@@ -971,7 +1413,7 @@ test('a second request does not inherit the earlier run permission snapshot', as
     [new h.Call('second', 'start_process', { device_id: 'device' })],
   ];
   await h.run();
-  options.config = { executionMode: 'confirm' };
+  options.config = { permissions: 'ask' };
   await h.run();
   assert.equal(h.confirmations.length, 1);
   assert.equal(h.calls.filter((call) => call.method === 'tools/call').length, 1);
@@ -1022,7 +1464,7 @@ test('extension disposal cancels an active request', async () => {
 
 test('an indeterminate mutation response stops with an unconfirmed outcome and no replay', async () => {
   const options = {
-    config: automatic(),
+    config: fullAccess(),
     onFetch(body) {
       if (body.method === 'tools/call') {
         throw new Error('connection dropped');

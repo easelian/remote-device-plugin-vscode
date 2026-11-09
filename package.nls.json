@@ -1,0 +1,16 @@
+{
+  "permissions.readOnly": "Read only",
+  "permissions.ask": "Ask for approval",
+  "permissions.fullAccess": "Full access",
+  "permissions.readOnly.description": "Inspect devices, files, and status. Changes and shell commands are blocked.",
+  "permissions.ask.description": "Run inspection tools without asking. Approve other tools once or, in a trusted workspace, for one device for the current request.",
+  "permissions.fullAccess.description": "Run all available RDH tools without per-call confirmation. Requires a trusted workspace. Remote device permissions still apply.",
+  "permissions.description": "Permissions for `@remote-device-hub`. Also available through **Remote Device Hub: Set Chat Permissions**. Only User or Remote settings can change permissions. Copilot Agent's direct MCP calls use VS Code's own tool approvals.",
+  "duration.description": "Overall time limit in minutes for one @remote-device-hub request, including waits. 0 removes the overall limit. Individual network deadlines still apply. Changing the time limit stops active requests.",
+  "command.signIn": "Sign In",
+  "command.signOut": "Sign Out",
+  "command.showStatus": "Show Status",
+  "command.showLogs": "Show Logs",
+  "command.setChatPermissions": "Set Chat Permissions",
+  "chat.description": "Describe a remote device task, such as \"List my authorized devices\" or \"Check free disk space on a device\""
+}

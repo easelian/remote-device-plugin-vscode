@@ -1,128 +1,83 @@
 # Remote Device Hub for VS Code
 
-![Easelian](resources/icon.png)
+![Easelian Remote Device Hub](resources/icon.png)
 
-Remote Device Hub by Easelian is a VS Code extension for working with your authorized remote devices through Copilot Chat and MCP.
+Use Copilot Chat or MCP in VS Code to work with your authorized devices. Remote Device Hub (RDH) can inspect and edit shared files, search directories, and run permitted commands on those devices.
 
-[Remote Device Hub](https://rdh.easelian.com) · [Source](https://github.com/easelian/remote-device-plugin-vscode) · [Report an issue](https://github.com/easelian/remote-device-plugin-vscode/issues)
+[Remote Device Hub](https://rdh.easelian.com) · [Download VSIX](https://github.com/easelian/remote-device-plugin-vscode/releases) · [Report an issue](https://github.com/easelian/remote-device-plugin-vscode/issues)
 
-The extension ID is `easelian.remote-device-hub`. It requires VS Code 1.105 or later.
+## Requirements
 
-Install the extension and reload VS Code. Before opening browser sign-in, the extension explains why it needs access to your Remote Device Hub account. Choose **Continue** to proceed, or cancel to leave it disconnected. Once authorized, you can use the device file, shell, and process tools through `@remote-device-hub` or the Remote Device Hub MCP server.
+Install and pair the **RDH Agent** on each device you want to control. See the [Agent installation and pairing guide](https://github.com/easelian/remote-device-agent#install-and-run) and [Agent distribution guide](https://github.com/easelian/remote-device-agent/blob/main/docs/distribution.md) for supported platforms and downloads.
 
-## Capabilities
+Install the **VS Code extension** in the editor you use to send requests. It requires VS Code desktop 1.105 or later and uses the extension ID `easelian.remote-device-hub`. You can use a local editor window or a Remote SSH editor window. In Remote SSH, the extension runs on the SSH workspace host, which may be a different machine from the RDH target device. VS Code does not need to be installed on the target device.
 
-- Browser sign-in with OAuth PKCE and automatic token refresh.
-- An authenticated MCP provider for device file, shell, and process tools.
-- A single `@remote-device-hub` chat participant with per-call confirmation or explicitly scoped automatic execution.
-- Local and Remote SSH operation through the workspace extension host.
+The Agent must be connected for device operations. File access is limited to the configured shared directories and permissions. Commands require command execution to be enabled and run with the Agent account's OS permissions. Shared directory boundaries do not confine shell commands. Use `device_info` to check the target OS, configured roots, enabled capabilities, and process limits. Optional browser tools are a preview feature. They require a compatible Hub and an Agent with browser sessions enabled. See the [Agent browser guide](https://github.com/easelian/remote-device-agent/blob/main/docs/browser.md).
 
-## Authentication
+## Set up and verify the connection
 
-Sign-in uses OAuth with PKCE. Recovery after a lost refresh response requires the Hub's `/token/refresh` endpoint.
+1. On the target device, start the RDH Agent. For an unpaired device, select the shared directory and approve pairing in the browser. Keep the Agent running.
+2. In the VS Code window you plan to use, run **Extensions: Install from VSIX**, select the RDH `.vsix`, and run **Developer: Reload Window**. For Remote SSH, open the SSH window first and confirm **Remote Device Hub** appears under the SSH host in the Extensions view. See [VS Code extension installation over SSH](https://code.visualstudio.com/docs/remote/ssh#managing-extensions).
+3. When RDH asks to connect your account, choose **Continue** and authorize in the browser on your local machine. Use the RDH account that has access to the paired device. If the prompt was dismissed or sign-in failed, run **Remote Device Hub: Sign In**. Existing valid credentials are reused.
+4. Open Chat in the editor window, select a model that supports tool calls, and send `@remote-device-hub List my authorized devices.` The response should include the target device ID and connection status. An empty list means the signed-in account has no devices available to list.
 
-MCP transport and the OAuth resource use `/mcp` at the configured MCP origin, which defaults to `https://rdh.easelian.com`. The extension discovers the authorization server and its endpoints from the MCP resource metadata. The website also defaults to `https://rdh.easelian.com`. Token requests reject redirects and never switch routes after an indeterminate result. A definitive 404 on the first recovery request permits a fallback to the advertised token endpoint.
+The chat model provider must be available in the same extension host as RDH. In Remote SSH, choose a model whose provider is available on the SSH workspace host. If the browser cannot open automatically, choose **Copy Link** and open it in your local browser. The browser must be able to return to the VS Code forwarded callback.
 
-The resource metadata must identify one origin-based issuer. The authorization, registration, token, refresh-recovery, and revocation endpoints, when advertised, must use that issuer's origin.
+## Use RDH in Chat
 
-Deployment settings belong in **User** or **Remote** settings. Workspace and folder settings cannot redirect credentials:
+- **`@remote-device-hub`** runs the RDH chat participant in the editor. Type the mention, select it from the suggestions, and describe the task. Try listing a shared directory or checking free disk space on a specific device ID from the device list. The participant connects directly to RDH and manages tool approvals using its own chat settings.
+- **Direct MCP tools** let Copilot Agent call the extension's **Remote Device Hub** server. Use **MCP: List Servers** to locate the extension-provided server and start it if needed. In the chat tool picker, enable the tools for your session. Review any server trust prompt before starting it. In VS Code versions that offer **Chat: Manage Tool Approval**, use it to review approvals for the **Remote Device Hub** source. See [VS Code tool approvals](https://code.visualstudio.com/docs/agents/run/approvals#manage-tool-approvals).
 
-```json
-{
-  "remoteDeviceHub.publicUrl": "https://rdh.easelian.com",
-  "remoteDeviceHub.mcpPublicUrl": "https://rdh.easelian.com"
-}
-```
+The extension provides the MCP server definition to the editor. You do not need to add a duplicate entry to `mcp.json`. VS Code may start the server on demand or when chat discovers tools. If `chat.mcp.autostart` is set to `never`, use **Start** in **MCP: List Servers**. Separate agent sessions that do not load the extension use their harness's MCP configuration. See [VS Code MCP configuration](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
 
-Empty values use the packaged defaults from `src/deploymentDefaults.ts`. Both settings accept origins only: no paths, query strings, fragments, or embedded credentials. HTTPS is required; HTTP is accepted only for `localhost`, `127.0.0.1`, or `[::1]` development servers. `publicUrl` identifies the website. `mcpPublicUrl` selects the MCP resource, which identifies the authorization server.
+### Extension commands
 
-Reload the window after changing deployment settings. Until reload, all requests in that window continue using the active deployment. Sign out before changing deployments if you also want to revoke that deployment's grant. Each MCP origin has separate saved tokens, sign-in state, and refresh recovery keys. Saved credentials are also bound to the discovered issuer; if the issuer changes or the saved credentials do not identify one, use **Remote Device Hub: Sign In** to reconnect. The extension does not send those credentials to the new issuer.
+Search for **Remote Device Hub** in the Command Palette. These are the English command names.
 
-1. The extension runs in the workspace extension host (`extensionKind: ["workspace"]`), which on an SSH host is the remote host. This keeps it in the same extension host as language-model providers, so `@remote-device-hub` can resolve the selected chat model. It starts a temporary callback server on a random `127.0.0.1` port on its host.
-2. `vscode.env.asExternalUri` makes the callback reachable from the client browser, forwarding the port when the extension runs remotely.
-3. The extension registers an OAuth client dynamically with the discovered Auth service, opens sign-in with PKCE, validates the callback, and exchanges the authorization code for tokens. The Auth service must allow the callback URI, including any URI produced by Remote SSH forwarding.
-4. Tokens are stored in `SecretStorage`. Refresh is scheduled three minutes before the token expires, including when another window updates the credentials. Credential changes fire `onDidChangeMcpServerDefinitions`.
-5. Before MCP startup, a side-effect-free `ping` checks whether the service accepts the token. A 401 triggers a refresh attempt. Permission errors, service failures, and rejected saved credentials do not automatically open browser sign-in. The MCP server does not start if the credential check fails.
+| Command | What it does |
+| --- | --- |
+| **Sign In** | Connects or reconnects your RDH account through the browser. |
+| **Sign Out** | Clears local sign-in and requests revocation of the saved RDH connection. |
+| **Show Status** | Checks whether the RDH service accepts the saved credentials and displays sign-in status. |
+| **Show Logs** | Opens the Remote Device Hub output channel. |
+| **Set Chat Permissions** | Changes the approval mode for `@remote-device-hub`. |
 
-## Startup and sign-in
+Command titles, setting descriptions, and chat approval prompts follow the VS Code display language in English, Simplified Chinese, and Traditional Chinese. The initial sign-in explanation is available in English and Simplified Chinese. Some runtime messages and service errors are in English.
 
-The extension registers its MCP provider during activation with `lm.registerMcpServerDefinitionProvider`. VS Code controls when the MCP server starts, including on-demand startup from chat and manual startup from the MCP server list. The `chat.mcp.autostart` setting controls automatic startup; a disabled server or a server in an error state may require manual intervention. Complete any trust prompt that VS Code displays.
+## Chat permissions and time limits
 
-Before starting the server, VS Code calls `resolveMcpServerDefinition`. The extension checks credentials, refreshes them when needed, and returns a definition with the current Authorization header.
+Run **Remote Device Hub: Set Chat Permissions** or change `remoteDeviceHub.chat.permissions` in User settings or the SSH host's Remote settings. These settings apply to `@remote-device-hub`.
 
-Activation checks saved credentials with the service. When no sign-in has been attempted, the extension first explains that Remote Device Hub is Easelian’s remote-device service and that connecting your account enables access to authorized devices, permitted files, and enabled commands and processes. Device restrictions still apply, and signing in does not pair a new device. Choose **Continue** to open browser sign-in, where you can authorize or decline access. Canceling the explanation opens no browser. A shared record prevents other windows or reloads from repeating the prompt or browser flow after cancellation, timeout, or failure. Use **Remote Device Hub: Sign In** to retry; each new browser sign-in requires confirmation. Existing credentials are renewed silently; if they cannot be renewed, use `Remote Device Hub: Sign In` to reconnect. MCP startup and chat show a `Sign In` action when saved credentials need attention. Typing `@` alone does not start authentication.
+| Mode | Setting value | Behavior |
+| --- | --- | --- |
+| Read only | `read-only` | Inspect devices, shared files, process output, and operation status. Commands and changes are blocked. |
+| Ask for approval (default) | `ask` | Inspection tools on the read-only list run without prompting. Other tools require approval, including shell commands used only for inspection. |
+| Full access | `full-access` | Skip RDH approval prompts for available tools in a trusted workspace. Account and device permissions still apply. |
 
-Refresh tokens are single-use. Sign-in creates a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Credentials without recovery metadata use `/token` and cannot recover a lost refresh response. If recovery is unavailable or the service has revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
+In **Ask for approval** mode, review the tool arguments and choose **Run Once**, **Approval Options…**, or cancel the chat request. **Approval Options…** lets you run the operation once and keep asking, switch to **Read only** and cancel the pending change, or save **Full access** and continue the request. If the workspace is trusted and the tool requires a device ID, **Allow Device for This Task** permits operations on that device for the remainder of the current request, including file changes and shell commands. It does not change saved permissions or apply to other devices, global operations, follow-ups, or concurrent requests.
 
-**Local VS Code:** Install the VSIX, run `Developer: Reload Window`, and complete authorization in your browser if prompted.
+The participant can iterate through tool calls until the task completes, you stop it, the time limit is reached, or an error occurs. Set `remoteDeviceHub.chat.maxDurationMinutes` in User or Remote settings. The default is **60 minutes**, including model waits, tool calls, and approvals. Enter an integer from `1` to `1440`, or `0` to remove the overall time limit. Individual network deadlines still apply. Changes to the effective settings stop active requests. Selecting **Full access** in an approval prompt can continue the request you are approving.
 
-**Remote SSH:** The extension declares `extensionKind: ["workspace"]` and runs on the SSH host. `vscode.env.asExternalUri` forwards the callback port and `openExternal` asks the client to open the browser. The extension does not launch a browser on the SSH host. Running on the SSH host also keeps it in the same extension host as chat model providers, so the `@remote-device-hub` participant can use the selected model.
+## Troubleshoot a connection or stalled request
 
-Activation, MCP startup, and manual sign-in share one pending login flow. A host-level lock coordinates windows on the same extension host. A canceled or timed-out login requires an explicit `Sign In` retry; queued windows do not start another browser flow. Signing out also suppresses automatic sign-in after reload. If the browser API reports failure, choose `Copy Link` and open the link in your local browser.
+| What you see | What to check |
+| --- | --- |
+| RDH is missing from Chat or the selected model is unavailable | Check the Extensions view in the current window. In Remote SSH, confirm RDH is installed on that host and select a tool-capable model available in the same extension host. Reload after installing. |
+| Sign-in does not open or finish | Run **Remote Device Hub: Sign In** and confirm the access explanation. If offered, use **Copy Link** in the local browser. In Remote SSH, keep the SSH window connected while the browser returns to VS Code. Run **Show Status** after sign-in. |
+| No devices are listed, or the target is offline | Check that you signed in to an account with access to the paired device and that the Agent is running. Use a fresh device list to confirm the device ID and status. |
+| The native MCP server is missing, stopped, or asks for its own sign-in | In **MCP: List Servers**, check the server source, then use **Start** or **Show Output**. A separately configured server with the same name has its own authentication. If a running connection still uses rejected credentials after **Show Status** succeeds, restart the MCP server. |
+| The chat request stalls or reports a timeout | **Show Logs** opens RDH's output. Check whether the request was connecting, loading tools, waiting for the selected model, or running a named tool. The extension allows 30 seconds for each OAuth metadata request, credential check, or token refresh request, and 60 seconds for each RDH chat MCP request. The model's response is subject to the overall chat time limit. |
+| A command was sent, but the result is unconfirmed | Check the original operation with `get_operation_status` using its operation ID or `list_operations` on the device. For an ordinary device call, use `get_call_status` with the Support ID or `list_calls`. Match the record to the device, action, and time before deciding whether to run it again. |
 
-`Remote Device Hub: Sign Out` records local sign-out, removes local tokens and the private recovery key, and asks the trusted Hub's `/revoke` endpoint to revoke the saved authorization. Local cleanup happens before waiting for the response, so closing VS Code during a slow request cannot restore the old sign-in. Sign-out shares the credential lock with refresh, so it revokes the latest saved credentials without refreshing them first. If the server cannot acknowledge revocation, a warning explains that server revocation is unconfirmed. Use the Hub's account settings to revoke the connection if credentials may have been compromised. A newer account signed in by another host while revocation is in flight is preserved.
+Stopping a chat, reloading VS Code, or timing out does not undo a command already sent to a device. A successful `start_process` confirms that the job started. Use `read_process` with the returned job ID to check output and completion. When reporting a problem, include the relevant run ID, tool name, and any operation or Support ID. RDH chat logs record execution metadata rather than command arguments, file contents, or credentials.
 
-Refresh is initiated by the extension, not pushed by the server. While the extension host is active, its timer refreshes credentials without chat activity. When VS Code is closed, refresh stops; the next activation can use a valid refresh token even if the one-hour access token has expired. The current Hub gives refresh tokens a 30-day lifetime and also expires the authorization grant 30 days after initial sign-in. Refresh does not extend that grant deadline. The recovery cache's separate 24-hour limit only applies to retrieving the result of an interrupted rotation.
+## Account access and data
 
-The loopback lock coordinates windows on one host. Hosts using the same VS Code SecretStorage share the private recovery key and derive the same proof for a refresh; the server serializes the operation and returns one rotation result to each host. A token pair alone cannot derive that proof. Do not share refresh tokens with clients that lack this recovery mechanism: they can replay consumed tokens.
+The extension connects to `https://rdh.easelian.com/mcp` and discovers the OAuth issuer from the MCP resource metadata. OAuth sign-in uses PKCE and opens in the local browser, including in a Remote SSH window. The extension stores credentials in VS Code SecretStorage, scoped to the MCP resource and bound to the issuer. Sign-in grants the extension access to the account's authorized devices. Pairing a device is a separate approval.
 
-If VS Code still displays its built-in MCP OAuth prompt, check the server's source in `MCP: List Servers`. A separate entry in `mcp.json`, even with the same name, does not use this extension's sign-in flow. If the service revokes credentials for a running connection, stop and restart that server so the extension can check them again.
+While the extension host is running, the extension refreshes credentials in the background. When the issuing service supports refresh recovery and recovery data is available, the extension can retrieve the result of an interrupted rotation without a new sign-in. Use **Sign In** if the issuer changes or the saved credentials cannot be renewed. **Sign Out** clears local credentials first and asks the authorization service to revoke the connection. If revocation cannot be confirmed, use the RDH account settings to revoke the connection.
 
-If the MCP server does not start:
-
-- Run `Remote Device Hub: Show Status` to check your sign-in status.
-- Open `MCP: List Servers` and use **Start** or **Show Output**.
-- If you declined a trust prompt, use `MCP: Reset Trust` and try again.
-- If `chat.mcp.autostart` is set to `never`, start the server manually or change that setting.
-- Run `Remote Device Hub: Show Logs` for extension diagnostics.
-
-The extension's MCP provider is available in the editor window running the extension. Separate Agent Host sessions in the Agents window use their own configuration, including workspace `.mcp.json` and user `~/.copilot/mcp-config.json`. The extension does not manage those configuration files.
-
-## Use Remote Device Hub in Copilot Chat
-
-Install the VSIX and run `Developer: Reload Window`. In Copilot Chat, type `@remote-device-hub` and select it from the suggestions. Then describe your task:
-
-- `@remote-device-hub List my authorized devices.`
-- `@remote-device-hub Check free disk space on device kylin-pc-a5704092.` Replace the example ID with one returned for your account. Shell commands require confirmation in the default execution mode.
-
-There is one chat entry point: `@remote-device-hub`. No slash commands are required. The gray placeholder shows examples; pressing Tab does not insert that text. An empty request displays a brief input hint if the client allows it to be sent.
-
-The chat participant shares the extension's authentication and token refresh logic and connects directly to the same RDH MCP service. You do not need to enable the server in the Agent mode tool picker first. Regular Agent mode can still use the existing MCP provider.
-
-Natural-language requests use the model selected in the chat window. That model must support tool calling. Recent text exchanges with this participant provide context for follow-up requests, while tools retrieve current device information. The default `confirm` execution mode asks before writes, shell commands, and operations outside the read-only allowlist. Declining stops the request. Network failures do not automatically replay tool calls, and canceling chat does not undo operations already sent to a device.
-
-### Continuous AI iteration
-
-The participant can repeat inspection, editing, builds, tests, and repairs in one request. It continues until the model finishes, you press Stop, a configured budget is reached, or an error occurs. Each request uses the model you selected in chat.
-
-For unattended work, first use `@remote-device-hub List my authorized devices` to obtain the target's exact ID. Then open **Preferences: Open User Settings (JSON)**, or **Preferences: Open Remote Settings (JSON)** in a Remote SSH window, and add:
-
-```json
-{
-  "remoteDeviceHub.chat.executionMode": "automatic",
-  "remoteDeviceHub.chat.automaticDevices": ["REPLACE_WITH_YOUR_DEVICE_ID"],
-  "remoteDeviceHub.chat.automaticTools": [
-    "start_process", "write_file", "edit_file", "make_directory",
-    "move_file", "write_process_stdin", "terminate_process",
-    "start_search", "stop_search"
-  ],
-  "remoteDeviceHub.chat.maxModelTurns": 0,
-  "remoteDeviceHub.chat.maxToolCalls": 0,
-  "remoteDeviceHub.chat.maxDurationMinutes": 60
-}
-```
-
-Replace the placeholder with an ID returned for your account, and retain only tools you intend to permit. The tool list above supports common coding tasks; a tool must also be advertised by the connected Hub. `0` removes the corresponding budget. The defaults are unlimited model turns and tool calls with a 60-minute time budget. Set `maxDurationMinutes` to `0` to remove that deadline, or use an integer up to 1440 for a bounded run.
-
-Automatic mode requires a trusted workspace. Device reads are limited to `automaticDevices`; non-read-only calls also require a name in `automaticTools`. Global read-only discovery remains available. Global mutations cannot run automatically, even if their tool name is listed. A call outside the configured scope stops with an explanation instead of waiting for a confirmation popup. Workspace `.vscode/settings.json` cannot grant these permissions or change the budgets; the settings are machine-scoped and are read from User or Remote settings. Changing chat execution settings stops active requests. Set `executionMode` back to `confirm` to restore per-call confirmation.
-
-Allowing `start_process` permits arbitrary shell commands with the remote Agent account's OS permissions. A device ID or file root is not a shell sandbox. Automatic mode removes RDH's per-call confirmation within that scope; model-provider consent, service quota, sign-in, and other VS Code prompts may still require attention.
-
-Describe the task and acceptance checks, for example: `@remote-device-hub On device <ID>, repair the failing tests in <project path>. Run the relevant checks after each fix and continue until they pass. Stop if you need a product decision.` The extension keeps the original request, recent complete tool exchanges, and bounded excerpts from earlier results within the selected model's input limit. Large outputs are explicitly marked as partial so the model can read narrower ranges. Excerpts are historical data; they do not replace checking current device state.
-
-Keep VS Code and its extension host running. Closing or reloading the window stops the loop; the extension does not resume a task automatically afterward. A remote process already started may continue running. Inspect its state before starting it again. `Remote Device Hub: Show Logs` records run IDs, tool names, device IDs, outcomes, and stop reasons without logging commands, file contents, or credentials.
-
-The chat client targets RDH's stateless Streamable HTTP configuration with JSON responses; it is not a general-purpose MCP client. Automated tests use simulated models, authentication responses, and MCP requests. Verify completion suggestions and model calls in the Copilot client when testing a release.
+The `@remote-device-hub` participant passes your request, relevant chat context, and RDH tool exchanges to the selected chat model. Tool results may contain remote file contents, paths, and command output. Large results may be shown to the model as partial excerpts. Ask for smaller ranges or read process output incrementally when you need the complete result.
 
 ## Development
 
@@ -133,7 +88,7 @@ is two spaces, single quotes, semicolons, trailing commas, and one statement per
 line. Type-only imports are explicit; explicit `any` and `@ts-ignore` are rejected.
 Generated files and third-party code are outside the formatting scope.
 
-Use Node.js 22, as configured in the CI and release workflows.
+From the extension repository root, use Node.js 22, as configured in the CI and release workflows.
 
 ```bash
 npm ci
@@ -167,31 +122,16 @@ For the split-service integration test, set `RDH_TEST_RUST_AUTH` and `RDH_TEST_R
 | `src/extension.ts` | Extension activation, commands, and MCP provider integration |
 | `src/authSession.ts` | Authentication state, refresh recovery, timers, and disposal |
 | `src/credentialStore.ts` | SecretStorage formats and conditional credential cleanup |
-| `src/authCallback.ts` | Temporary OAuth callback servers and cancellable waits |
+| `src/authCallback.ts` | Temporary OAuth callback server |
+| `src/requestDeadline.ts` | Deadlines for authentication and MCP requests |
 | `src/boundaries.ts` | Validation for saved credentials, OAuth responses, and MCP messages |
 | `src/chat.ts` | Chat participant, model tool calls, and the MCP HTTP client |
-| `src/chatRun.ts` | Chat execution permissions, budgets, and cancellation |
+| `src/chatRun.ts` | Permission picker, task approvals, time limit, and cancellation |
 | `src/chatContext.ts` | Bounded model context and historical tool excerpts |
 | `.vscode/launch.json` | F5 launch configuration |
-| `package.json` | Extension metadata, MCP provider, chat participant, and commands |
+| `package.json` | Extension metadata, MCP provider, chat participant, commands, and settings |
+| `package.nls*.json`, `l10n/` | Translations for extension contributions and chat UI |
 
-## Brand assets and license
+## License
 
-The extension icon is a 256 × 256 PNG exported from the [Remote Device Hub universal product master](https://github.com/easelian/brand/blob/main/products/remote-device-hub/icons/remote-device-hub.svg). Its fixed charcoal badge and off-white border, desktop display, lock, and two-tooth key use two solid colors on both light and dark surfaces; only the rounded outer corners are transparent. Easelian is the publisher. The Marketplace banner uses the product background color, `#1D1D1F`.
-
-To regenerate the icon from a sibling `brand` checkout:
-
-```sh
-inkscape ../brand/products/remote-device-hub/icons/remote-device-hub.svg \
-  --export-area-page --export-width=256 --export-height=256 \
-  --export-background-opacity=0 --export-filename=resources/icon.png
-```
-
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
-
-## Known limitations
-
-- Documentation, comments, and UI text use American English; localization is not provided.
-- Credential checks target the current stateless HTTP MCP service. An existing connection is not guaranteed to pick up refreshed credentials immediately. Restart MCP if the service revokes its token.
-- Workspaces in the same window share stored credentials. Refresh coordination is scoped to the extension host.
-- The `@remote-device-hub` chat participant can only use chat models whose provider extension runs in the same extension host. `extensionKind: ["workspace"]` keeps the extension alongside model providers in remote windows; a model from a provider in another extension host fails with "The selected model ... is not available."
+Easelian publishes this extension under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
