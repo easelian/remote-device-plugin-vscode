@@ -145,8 +145,128 @@ test('optional callback issuer may be absent, but a present issuer must match', 
   assert.equal(rejected.requests.filter((request) => request.url.endsWith('/token')).length, 0);
 });
 
+test('sign-in waits for an explanation and affirmative choice before contacting authorization services', async (t) => {
+  let approve;
+  const h = harness(t, {
+    confirmSignIn: () =>
+      new Promise((resolve) => {
+        approve = resolve;
+      }),
+  });
+  await until(() => approve);
+  const prompt = h.signInPrompts[0];
+  assert.equal(prompt.options.modal, true);
+  assert.deepEqual(prompt.items, ['Continue']);
+  assert.match(prompt.options.detail, /Easelian/);
+  assert.match(prompt.options.detail, /authorized devices/);
+  assert.match(prompt.options.detail, /does not pair/);
+  assert.equal(h.discoveryRequests.length, 0);
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.callbackUris.length, 0);
+  assert.equal(h.opens.length, 0);
+  assert.equal(h.token, undefined);
+  approve('Continue');
+  await until(() => h.token);
+  assert.equal(h.opens.length, 1);
+});
+
+test('browser authorization denial cancels sign-in without token exchange or an error notification', async (t) => {
+  const h = harness(t, { callbackError: 'access_denied' });
+  await until(() => h.logs.some((line) => line.includes('sign-in cancelled in browser')));
+  assert.equal(await h.provider.resolveMcpServerDefinition(), undefined);
+  assert.equal(h.token, undefined);
+  assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 0);
+  assert.equal(h.requests.filter((request) => request.url.endsWith('/mcp')).length, 0);
+  assert.ok(!h.messages.some((message) => message.includes('sign-in failed')));
+});
+
+for (const callbackIssuer of [null, 'https://wrong.example/']) {
+  test(`browser denial with invalid issuer ${callbackIssuer} is not accepted as cancellation`, async (t) => {
+    const h = harness(t, { callbackError: 'access_denied', callbackIssuer });
+    await until(() => h.messages.some((message) => message.includes('issuer_mismatch')));
+    assert.ok(!h.logs.some((line) => line.includes('sign-in cancelled in browser')));
+    assert.equal(h.token, undefined);
+    assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 0);
+  });
+}
+
+test('Chinese VS Code explains sign-in in Chinese and accepts its localized action', async (t) => {
+  const h = harness(t, { language: 'zh-cn' });
+  await until(() => h.token);
+  const prompt = h.signInPrompts[0];
+  assert.match(prompt.text, /将 VS Code 连接到/);
+  assert.match(prompt.options.detail, /易连网（Easelian）的远程设备服务/);
+  assert.match(prompt.options.detail, /列出你已授权的设备、读写允许访问的文件/);
+  assert.match(prompt.options.detail, /登录不会自动配对新设备/);
+  assert.match(prompt.options.detail, /拒绝授权/);
+  assert.deepEqual(prompt.items, ['继续']);
+  assert.equal(h.opens.length, 1);
+});
+
+test('declining sign-in suppresses queued windows and reload until an explicit retry', async (t) => {
+  let decline;
+  const a = harness(t, {
+    confirmSignIn: () =>
+      new Promise((resolve) => {
+        decline = resolve;
+      }),
+  });
+  await until(() => decline);
+  const b = harness(t, { shared: a.shared, scope: a.scope });
+  const waiting = b.provider.resolveMcpServerDefinition();
+  const pending = a.commands.get('rdh.signIn')();
+  decline(undefined);
+  await pending;
+  assert.equal(await waiting, undefined);
+  const c = harness(t, { shared: a.shared, scope: a.scope });
+  assert.equal(await c.provider.resolveMcpServerDefinition(), undefined);
+  for (const h of [a, b, c]) {
+    assert.equal(h.opens.length, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.discoveryRequests.length, 0);
+    assert.equal(h.callbackUris.length, 0);
+    assert.equal(h.token, undefined);
+  }
+  assert.equal(a.signInPrompts.length, 1);
+  assert.equal(b.signInPrompts.length + c.signInPrompts.length, 0);
+  await b.commands.get('rdh.signIn')();
+  assert.equal(b.signInPrompts.length, 1);
+  assert.equal(b.opens.length, 1);
+  assert.equal(b.token.access_token, 'accepted');
+});
+
+for (const action of ['cancel', 'signOut', 'dispose']) {
+  test(`${action} during sign-in confirmation ignores a late affirmative choice`, async (t) => {
+    let approve;
+    const h = harness(t, {
+      confirmSignIn: () =>
+        new Promise((resolve) => {
+          approve = resolve;
+        }),
+    });
+    await until(() => approve);
+    const pending = h.commands.get('rdh.signIn')();
+    if (action === 'signOut') {
+      await h.commands.get('rdh.signOut')();
+    } else if (action === 'dispose') {
+      h.disposeSession();
+    } else {
+      h.cancel();
+    }
+    await pending;
+    approve('Continue');
+    await tick();
+    assert.equal(h.opens.length, 0);
+    assert.equal(h.requests.length, 0);
+    assert.equal(h.discoveryRequests.length, 0);
+    assert.equal(h.callbackUris.length, 0);
+    assert.equal(h.token, undefined);
+    assert.ok(!h.messages.some((message) => message.includes('sign-in failed')));
+  });
+}
+
 for (const ssh of [false, true]) {
-  test(`activation automatically authorizes via ${ssh ? 'forwarded SSH callback' : 'local callback'}`, async (t) => {
+  test(`activation authorizes after confirmation via ${ssh ? 'forwarded SSH callback' : 'local callback'}`, async (t) => {
     const h = harness(t, { ssh });
     await until(() => h.token);
     assert.equal(h.token._refresh_recovery, true);
@@ -195,6 +315,7 @@ test('accepted stored credentials do not open a browser', async (t) => {
     'Bearer accepted',
   );
   assert.equal(h.opens.length, 0);
+  assert.equal(h.signInPrompts.length, 0);
 });
 test('rejected saved credentials stop MCP startup without opening a browser', async (t) => {
   const h = harness(t, { token: freshToken('revoked') });

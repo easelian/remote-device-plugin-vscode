@@ -2,7 +2,7 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Use your authorized devices' file, shell and process tools in VS Code via MCP.",
-  "version": "0.0.23",
+  "version": "0.0.24",
   "publisher": "easelian",
   "author": "Easelian",
   "license": "Apache-2.0",

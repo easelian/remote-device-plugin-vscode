@@ -58,6 +58,7 @@ function harness(t, options = {}) {
   const commands = new Map();
   const listeners = new Set();
   const messages = [];
+  const signInPrompts = [];
   const opens = [];
   const requests = [];
   const discoveryRequests = [];
@@ -147,8 +148,13 @@ function harness(t, options = {}) {
         controllers.push(p);
         return p;
       },
-      async showInformationMessage(text) {
+      async showInformationMessage(text, messageOptions, ...items) {
         messages.push(text);
+        if (messageOptions?.modal) {
+          const prompt = { text, options: messageOptions, items };
+          signInPrompts.push(prompt);
+          return options.confirmSignIn ? options.confirmSignIn(prompt) : items[0];
+        }
       },
       async showWarningMessage(text) {
         messages.push(text);
@@ -159,6 +165,7 @@ function harness(t, options = {}) {
       },
     },
     env: {
+      language: options.language || 'en',
       async asExternalUri(uri) {
         callbackUris.push(uri.toString());
         if (options.tunnelError) {
@@ -209,7 +216,11 @@ function harness(t, options = {}) {
   };
   async function callback(uri) {
     const target = new URL(uri.searchParams.get('redirect_uri'));
-    target.searchParams.set('code', 'test-code');
+    if (options.callbackError) {
+      target.searchParams.set('error', options.callbackError);
+    } else {
+      target.searchParams.set('code', 'test-code');
+    }
     target.searchParams.set('state', uri.searchParams.get('state'));
     if (options.callbackIssuer !== null) {
       target.searchParams.set('iss', options.callbackIssuer || issuer);
@@ -441,6 +452,7 @@ function harness(t, options = {}) {
     provider,
     chatDeps,
     messages,
+    signInPrompts,
     opens,
     requests,
     discoveryRequests,

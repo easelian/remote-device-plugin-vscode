@@ -8,7 +8,7 @@ Remote Device Hub by Easelian is a VS Code extension for working with your autho
 
 The extension ID is `easelian.remote-device-hub`. It requires VS Code 1.105 or later.
 
-Install the extension and reload VS Code. If you need to sign in, the extension opens your browser automatically. Once authorized, you can use the device file, shell, and process tools through `@remote-device-hub` or the Remote Device Hub MCP server.
+Install the extension and reload VS Code. Before opening browser sign-in, the extension explains why it needs access to your Remote Device Hub account. Choose **Continue** to proceed, or cancel to leave it disconnected. Once authorized, you can use the device file, shell, and process tools through `@remote-device-hub` or the Remote Device Hub MCP server.
 
 ## Capabilities
 
@@ -50,7 +50,7 @@ The extension registers its MCP provider during activation with `lm.registerMcpS
 
 Before starting the server, VS Code calls `resolveMcpServerDefinition`. The extension checks credentials, refreshes them when needed, and returns a definition with the current Authorization header.
 
-Activation also checks saved credentials with the service. A first installation opens browser sign-in automatically. A shared record prevents other windows or reloads from opening another browser after that attempt is canceled, times out, or fails. Existing credentials are renewed silently; if they cannot be renewed, use `Remote Device Hub: Sign In` to reconnect. MCP startup and chat show a `Sign In` action when saved credentials need attention. Typing `@` alone does not start authentication.
+Activation checks saved credentials with the service. When no sign-in has been attempted, the extension first explains that Remote Device Hub is Easelian’s remote-device service and that connecting your account enables access to authorized devices, permitted files, and enabled commands and processes. Device restrictions still apply, and signing in does not pair a new device. Choose **Continue** to open browser sign-in, where you can authorize or decline access. Canceling the explanation opens no browser. A shared record prevents other windows or reloads from repeating the prompt or browser flow after cancellation, timeout, or failure. Use **Remote Device Hub: Sign In** to retry; each new browser sign-in requires confirmation. Existing credentials are renewed silently; if they cannot be renewed, use `Remote Device Hub: Sign In` to reconnect. MCP startup and chat show a `Sign In` action when saved credentials need attention. Typing `@` alone does not start authentication.
 
 Refresh tokens are single-use. Sign-in creates a client recovery key in a separate SecretStorage entry. Before refreshing, the extension saves a pending marker and a proof derived from that private key and the refresh token. A server that supports `/token/refresh` can return the saved result of the same operation after a lost response, reload, or process restart. The extension retries recovery in the background without browser sign-in. If only saving the response failed, the running extension retries saving it without another network request. Credentials without recovery metadata use `/token` and cannot recover a lost refresh response. If recovery is unavailable or the service has revoked the grant, use `Sign In` to reconnect. Logs omit private keys, proofs, and token values.
 
@@ -142,7 +142,7 @@ npm test            # Requires permission to listen on temporary 127.0.0.1 ports
 npm run package:vsix
 ```
 
-Press `F5` to launch the Extension Development Host. If you are not signed in, the browser authorization page should open automatically. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
+Press `F5` to launch the Extension Development Host. On a first sign-in, verify that the access explanation appears before any browser opens. Choose **Continue** to open browser authorization, or cancel and use **Remote Device Hub: Sign In** when ready to retry. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
 
 TypeScript enables `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes`. JSON, saved credentials, OAuth responses, and MCP messages enter through `src/boundaries.ts` as `unknown` and are checked before use. MCP schema checks cover the fields consumed by the extension; they are not a full JSON Schema validator.
 

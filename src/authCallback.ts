@@ -45,9 +45,11 @@ export function startCallbackServer(): Promise<{
       };
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(
-        result.error
-          ? `<html><body><h2>Authorization failed</h2><p>${result.error}</p></body></html>`
-          : '<html><body><h2>Authorization received - you can close this page</h2></body></html>',
+        result.error === 'access_denied'
+          ? '<html><body><h2>Authorization cancelled</h2><p>You can close this page and return to VS Code.</p></body></html>'
+          : result.error
+            ? '<html><body><h2>Authorization failed</h2><p>Return to VS Code for details.</p></body></html>'
+            : '<html><body><h2>Authorization received - you can close this page</h2></body></html>',
       );
       settle(result);
     });
@@ -72,7 +74,7 @@ export function startCallbackServer(): Promise<{
               if (r.state !== expectedState) {
                 res({ error: 'state_mismatch', errorDescription: 'state validation failed' });
               } else if (
-                !r.error &&
+                (!r.error || r.error === 'access_denied') &&
                 expectedIssuer &&
                 ((r.issuer !== undefined && r.issuer !== expectedIssuer) ||
                   (requireIssuer && r.issuer === undefined))

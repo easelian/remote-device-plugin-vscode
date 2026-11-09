@@ -523,7 +523,9 @@ export class AuthSession implements vscode.Disposable {
         await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: 'Remote Device Hub: signing in',
+            title: vscode.env.language?.toLowerCase().startsWith('zh')
+              ? 'Remote Device Hub：连接账户'
+              : 'Remote Device Hub: connect your account',
             cancellable: true,
           },
           (progress, cancellation) => this.runSignIn(progress, cancellation, explicit),
@@ -579,6 +581,33 @@ export class AuthSession implements vscode.Disposable {
           // Keep this marker after cancellation, timeout, failure, and reload. A
           // waiting window must not start another browser flow after we release.
           await this.store.recordAuthHistory({ attempted_at: Date.now() });
+          signal.throwIfAborted();
+          const chinese = vscode.env.language?.toLowerCase().startsWith('zh');
+          const continueLabel = chinese ? '继续' : 'Continue';
+          const consentDetail = chinese
+            ? 'Remote Device Hub 是易连网（Easelian）的远程设备服务。登录后，此 VS Code 扩展会连接到你的账号，以列出你已授权的设备、读写允许访问的文件，以及运行已启用的命令和进程。设备的权限和限制仍然有效；登录不会自动配对新设备。\n\n' +
+              '选择“继续”后，将打开浏览器供你登录并授权。你可以在浏览器中拒绝授权，也可以在此取消，不打开浏览器。'
+            : 'Remote Device Hub is Easelian’s remote-device service. Signing in connects this VS Code extension to your account so it can list your authorized devices, read and write permitted files, and run enabled commands and processes. Device permissions and restrictions still apply; signing in does not pair any new device.\n\n' +
+              'Choose Continue to open your browser for sign-in and authorization. You can decline authorization in the browser, or cancel here without opening it.';
+          const consent = await abortable(
+            vscode.window.showInformationMessage(
+              chinese
+                ? '将 VS Code 连接到 Remote Device Hub？'
+                : 'Connect VS Code to Remote Device Hub?',
+              {
+                modal: true,
+                detail: consentDetail,
+              },
+              continueLabel,
+            ),
+            signal,
+            'sign-in confirmation',
+            AUTH_TIMEOUT_MS,
+          );
+          signal.throwIfAborted();
+          if (consent !== continueLabel) {
+            return;
+          }
           const endpoints = await abortable(this.getAuthEndpoints(), signal, 'OAuth discovery');
           progress.report({ message: 'Preparing browser callback…' });
           const cb = await startCallbackServer();
@@ -671,6 +700,10 @@ export class AuthSession implements vscode.Disposable {
               'authorization',
               AUTH_TIMEOUT_MS,
             );
+            if (result.error === 'access_denied') {
+              this.log.info('sign-in cancelled in browser');
+              return;
+            }
             if (result.error) {
               throw new Error(`${result.error} ${result.errorDescription ?? ''}`);
             }
