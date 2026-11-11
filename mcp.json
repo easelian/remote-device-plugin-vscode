@@ -1,0 +1,9 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "remote-device-hub": {
+      "type": "streamable-http",
+      "url": "https://rdh.easelian.com/mcp"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "remote-device-hub",
+  "version": "0.0.26",
+  "description": "Work with your authorized remote devices from chat: inspect shared files, edit them, and run permitted commands through Remote Device Hub.",
+  "author": {
+    "name": "Easelian",
+    "url": "https://rdh.easelian.com"
+  },
+  "homepage": "https://rdh.easelian.com",
+  "repository": "https://github.com/easelian/remote-device-plugin-vscode",
+  "license": "Apache-2.0",
+  "keywords": ["mcp", "remote", "device", "agent", "shell"]
+}

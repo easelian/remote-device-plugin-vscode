@@ -8,3 +8,5 @@ releases/**
 .editorconfig
 biome.json
 .github/**
+plugin.json
+mcp.json

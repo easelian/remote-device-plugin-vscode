@@ -84,6 +84,11 @@
         }
       }
     },
+    "chatSkills": [
+      {
+        "path": "./skills/remote-device/SKILL.md"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "easelian.remote-device-hub.chat",
