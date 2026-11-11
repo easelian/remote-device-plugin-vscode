@@ -1,4 +1,5 @@
 {
+  "capabilities.untrustedWorkspaces.description": "Read only and Ask for approval work in Restricted Mode. Full access and per-task device grants require a trusted workspace.",
   "permissions.readOnly": "Read only",
   "permissions.ask": "Ask for approval",
   "permissions.fullAccess": "Full access",

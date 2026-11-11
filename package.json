@@ -36,6 +36,13 @@
   "extensionKind": [
     "workspace"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "%capabilities.untrustedWorkspaces.description%"
+    },
+    "virtualWorkspaces": false
+  },
   "activationEvents": [
     "onStartupFinished",
     "onChatParticipant:easelian.remote-device-hub.chat"

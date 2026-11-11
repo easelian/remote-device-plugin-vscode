@@ -1,4 +1,5 @@
 {
+  "capabilities.untrustedWorkspaces.description": "唯讀與要求核准模式在限制模式下可用；完整存取與依任務授權裝置需要受信任的工作區。",
   "permissions.readOnly": "唯讀",
   "permissions.ask": "要求核准",
   "permissions.fullAccess": "完整存取",

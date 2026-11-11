@@ -1,4 +1,5 @@
 {
+  "capabilities.untrustedWorkspaces.description": "只读和请求批准模式在受限模式下可用；完全访问和按任务授权设备需要受信任的工作区。",
   "permissions.readOnly": "只读",
   "permissions.ask": "请求批准",
   "permissions.fullAccess": "完全访问",
