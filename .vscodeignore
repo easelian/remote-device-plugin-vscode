@@ -4,6 +4,7 @@ tsconfig.json
 .gitignore
 **/*.map
 test/**
+scripts/**
 releases/**
 .editorconfig
 biome.json

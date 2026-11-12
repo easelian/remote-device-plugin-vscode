@@ -173,8 +173,18 @@ Maintain the operating skill and its references in this repository under
 `skills/remote-device-operations/`. Both the VSIX and this repository's agent
 plugin package include these local files. `npm test` checks their identity,
 extension contribution, and referenced procedures. CI runs these checks through
-`npm test`. Skill copies in other RDH distributions are maintained independently;
-CI does not compare their contents across repositories.
+`npm test`.
+
+This repository is the single source of that skill. With the other plugin
+checkouts next to this one, `npm run skill:sync` copies it into them and
+`npm run skill:check` reports drift without writing; pass `-- --target <checkout>`
+to select checkouts and `-- --workspace <dir>` when they live elsewhere. Run the
+check before a coordinated release. The only permitted differences are the
+host-specific replacements listed in `scripts/sync-skill.cjs`, and each must
+match the source exactly once. Currently synced: `remote-device-plugin-claude`.
+The Codex and DSH distributions carry their own skill text and are not synced.
+CI has only this checkout, so it verifies the replacements still apply but
+cannot compare the other repositories.
 
 TypeScript enables `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes`. JSON, saved credentials, OAuth responses, and MCP messages enter through `src/boundaries.ts` as `unknown` and are checked before use. MCP schema checks cover the fields consumed by the extension; they are not a full JSON Schema validator.
 
@@ -208,6 +218,7 @@ For the split-service integration test, set `RDH_TEST_RUST_AUTH` and `RDH_TEST_R
 | `.vscode/launch.json` | F5 launch configuration |
 | `package.json` | Extension metadata, MCP provider, chat participant, skill contribution, commands, and settings |
 | `package.nls*.json`, `l10n/` | Translations for extension contributions and chat UI |
+| `scripts/sync-skill.cjs` | Copies the operating skill to the other plugin checkouts, or checks them for drift |
 | `plugin.json`, `mcp.json` | Agent Plugins 1.0 package for clients that do not load the extension |
 | `skills/remote-device-operations/` | Locally maintained RDH operating skill and references, shipped by the plugin and by `contributes.chatSkills` |
 
