@@ -141,6 +141,8 @@
     "watch": "tsc -watch -p ./",
     "vscode:prepublish": "npm run compile",
     "package:vsix": "vsce package --no-dependencies",
+    "skill:sync": "node scripts/sync-skill.cjs",
+    "skill:check": "node scripts/sync-skill.cjs --check",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
