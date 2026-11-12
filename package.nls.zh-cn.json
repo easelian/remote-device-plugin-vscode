@@ -6,12 +6,12 @@
   "permissions.readOnly.description": "查看设备、文件和状态。禁止修改和执行命令。",
   "permissions.ask.description": "使用检查工具时无需确认。其他工具需单次批准。在受信任的工作区中，也可允许当前请求操作指定设备。",
   "permissions.fullAccess.description": "运行所有可用的 RDH 工具，不逐次弹窗。需要受信任的工作区，远程设备原有权限仍然有效。",
-  "permissions.description": "用于 `@remote-device-hub` 的权限。也可通过命令 **Remote Device Hub: 设置聊天权限** 修改。仅用户或远程设置可以更改权限。Copilot Agent 直接调用 MCP 时使用 VS Code 自身的工具审批。",
+  "permissions.description": "用于 `@remote-device-hub` 的权限，该参与者仅在 Local 会话中可用。也可通过命令 **Remote Device Hub: 设置聊天权限** 修改。仅用户或远程设置可以更改权限。Copilot Agent 直接调用 MCP 时使用 VS Code 自身的工具审批。",
   "duration.description": "每次 @remote-device-hub 请求的总时限（分钟），包含等待时间。0 表示不设总时限，单次网络请求的超时仍然有效。更改时限会停止正在执行的请求。",
   "command.signIn": "登录",
   "command.signOut": "退出登录",
   "command.showStatus": "显示状态",
   "command.showLogs": "显示日志",
   "command.setChatPermissions": "设置聊天权限",
-  "chat.description": "描述远程设备任务，例如“列出我已授权的设备”或“检查设备的可用磁盘空间”"
+  "chat.description": "仅限 Local 会话。描述远程设备任务，例如“列出我已授权的设备”或“检查设备的可用磁盘空间”"
 }

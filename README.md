@@ -49,11 +49,11 @@ RDH works with both agent harnesses in VS Code and with other agent clients. Pic
 | --- | --- | --- |
 | Extension-provided MCP server | Any harness that loads the extension, including Copilot | The `remote-device-hub` tools, authenticated by the extension |
 | `remote-device-operations` skill | Any harness that supports Agent Skills | The RDH operating procedure: device lookup, files, processes, browser sessions, and operation receipts |
-| `@remote-device-hub` participant | Local harness only | A participant that runs its own tool loop and approval prompts |
+| `@remote-device-hub` participant | Local harness only (deprecated) | A participant that runs its own tool loop and approval prompts |
 
 **Copilot harness.** Ask for the task directly, for example `Check free disk space on device <device ID>`, and let the agent call the RDH tools. The skill loads when a request targets a remote device, so you do not need to name the tools. Tools come from the extension's `remote-device-hub` server: use **MCP: List Servers** to start it if needed, and enable its tools in the chat tool picker. Review any server trust prompt before starting it. In VS Code versions that offer **Chat: Manage Tool Approval**, review approvals for tools from `remote-device-hub`. Those approvals are VS Code's own, so `remoteDeviceHub.chat.permissions` does not apply. See [VS Code tool approvals](https://code.visualstudio.com/docs/agents/run/approvals#manage-tool-approvals).
 
-**Local harness.** Select Local as the session target and mention **`@remote-device-hub`**. The participant connects directly to RDH, keeps its own tool loop, and applies the settings in [Chat permissions and time limits](#chat-permissions-and-time-limits).
+**Local harness (deprecated).** VS Code has deprecated the Local harness and chat participants and plans to remove Local in February 2027; the Copilot harness does not load participants. The extension's MCP server, skill, and account commands do not depend on the participant and keep working without it. Until then, select Local as the session target and mention **`@remote-device-hub`**. The participant connects directly to RDH, keeps its own tool loop, and applies the settings in [Chat permissions and time limits](#chat-permissions-and-time-limits).
 
 **Other agent clients.** The repository root is an Agent Plugins 1.0 package: `plugin.json`, `mcp.json`, and `skills/remote-device-operations/`. Install it with `/plugin install` from the Git repository, or register a local checkout with the experimental `chat.pluginLocations` setting. The plugin authenticates through the client's own OAuth flow and carries no credentials.
 

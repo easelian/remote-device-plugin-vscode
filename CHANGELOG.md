@@ -13,6 +13,10 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
   details stay below.
 - Sharpened the Marketplace description and keywords, and moved the categories
   to `AI` and `Chat`.
+- The MCP server, skill, and account commands no longer depend on the Chat
+  Participant API. `@remote-device-hub` is registered last, and an editor
+  without that API still gets everything else. Its description and settings now
+  state that it runs in Local sessions only.
 
 ### Fixed
 
