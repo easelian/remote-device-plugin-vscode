@@ -233,6 +233,11 @@ export class HubClient {
 }
 
 export function registerChat(context: vscode.ExtensionContext, deps: Dependencies): void {
+  // Register the contributed command before the participant: creating the
+  // participant fails in an editor without the Chat Participant API.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('rdh.setChatPermissions', selectChatPermissions),
+  );
   const shutdown = new vscode.CancellationTokenSource();
   const participant = vscode.chat.createChatParticipant(
     CHAT_ID,
@@ -240,9 +245,6 @@ export function registerChat(context: vscode.ExtensionContext, deps: Dependencie
   );
   participant.iconPath = new vscode.ThemeIcon('remote');
   context.subscriptions.push(participant);
-  context.subscriptions.push(
-    vscode.commands.registerCommand('rdh.setChatPermissions', selectChatPermissions),
-  );
   context.subscriptions.push({
     dispose() {
       shutdown.cancel();

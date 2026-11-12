@@ -359,7 +359,7 @@ test('manifest and participant register the same @ entry', () => {
   assert.equal(m.contributes.chatParticipants.length, 1);
   assert.equal(m.contributes.chatParticipants[0].commands, undefined);
   assert.equal(h.participant.followupProvider, undefined);
-  assert.equal(context.subscriptions[0], h.participant);
+  assert.ok(context.subscriptions.includes(h.participant));
   assert.ok(h.commands.has('rdh.setChatPermissions'));
   assert.ok(m.contributes.commands.some((command) => command.command === 'rdh.setChatPermissions'));
 });

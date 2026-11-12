@@ -414,6 +414,9 @@ function harness(t, options = {}) {
       if (name === './chat') {
         return {
           registerChat(_context, deps) {
+            if (options.chatUnavailable) {
+              throw new TypeError('vscode.chat.createChatParticipant is not a function');
+            }
             chatDeps = deps;
           },
         };
