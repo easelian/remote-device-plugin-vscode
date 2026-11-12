@@ -42,10 +42,11 @@ RDH works with both agent harnesses in VS Code and with other agent clients. Pic
 ### Use the extension and agent plugin together
 
 RDH packages use the MCP server name `remote-device-hub` and the skill name
-`remote-device-operations`. With VS Code's default
-`chat.mcp.collisionBehavior: "disable"`, editor-managed servers with the same
-name are mutually exclusive. A more specific User or Workspace definition can
-take precedence. Selecting `"suffix"` permits multiple connections instead.
+`remote-device-operations`. VS Code documents name-based MCP server
+deduplication: the default choice favors the most specific definition, and
+switching to another definition disables its same-name alternatives. Manage
+enabled servers through the Extensions search `@mcp @installed` or
+**Chat: Open Customizations**.
 See [VS Code's server deduplication](https://code.visualstudio.com/updates/v1_118#_workspace-mcpjson-files-and-server-deduplication).
 
 The extension publishes its definition without reading credentials, contacting
@@ -139,6 +140,12 @@ npm run package:vsix
 ```
 
 Press `F5` to launch the Extension Development Host. Confirm that activation and MCP definition discovery make no authentication requests. Start the extension's connection and verify that the access explanation appears before any browser opens. Choose **Continue** to open browser authorization, or cancel and use **Remote Device Hub: Sign In** when ready to retry. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
+
+The automated tests do not execute VS Code's server selection. To validate
+coexistence, install both the VSIX and the RDH agent plugin in the target client
+and harness. Check the active MCP source and tool availability, switch sources,
+and repeat after reloading and with multiple windows. A minimum-version
+declaration does not establish that these client behaviors have been verified.
 
 To exercise the plugin package instead of the extension, register this checkout with the experimental `chat.pluginLocations` setting and enable it, start a Copilot session, and run `/remote-device-hub:remote-device-operations`. `npm test` validates `plugin.json`, `mcp.json`, and every `SKILL.md`.
 

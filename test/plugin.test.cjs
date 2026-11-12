@@ -91,9 +91,3 @@ test('the packaged skill has one identity and includes every referenced procedur
   }
   assert.equal(fs.existsSync(path.join(root, 'skills/remote-device/SKILL.md')), false);
 });
-
-test('the supported editor version includes native MCP collision handling', () => {
-  const minimum = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(manifest.engines.vscode);
-  assert.ok(minimum);
-  assert.ok(Number(minimum[1]) > 1 || Number(minimum[2]) >= 118);
-});
