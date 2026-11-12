@@ -29,7 +29,7 @@ You do not need to name any tool: the `remote-device-operations` skill loads whe
 ## Quick start
 
 1. **Pair the device.** Install and start the **RDH Agent** there, choose the shared directory, and approve the pairing in your browser. See the [Agent installation and pairing guide](https://github.com/easelian/remote-device-agent#install-and-run) and the [distribution guide](https://github.com/easelian/remote-device-agent/blob/main/docs/distribution.md).
-2. **Connect this editor.** Install this extension, then start its server in **MCP: List Servers** or run **Remote Device Hub: Sign In**. Authorize in the browser; valid credentials are reused, and installing or reloading never prompts on its own.
+2. **Connect this editor.** Install this extension. The first time VS Code looks for its server, the extension asks once whether to connect and then opens your browser to authorize. If you decline, it does not ask again: run **Remote Device Hub: Sign In** when you are ready. Valid credentials are reused.
 3. **Ask.** Select a model that supports tool calls and send `List my authorized devices`. Then name the device: `Check free disk space on device <device ID>`.
 
 Installing from a downloaded `.vsix` instead: run **Extensions: Install from VSIX**, then **Developer: Reload Window**. In Remote SSH, open the SSH window first and confirm **Remote Device Hub** appears under the SSH host ([managing extensions over SSH](https://code.visualstudio.com/docs/remote/ssh#managing-extensions)); use **Copy Link** if the browser cannot return to the forwarded callback.
@@ -67,13 +67,14 @@ enabled servers through the Extensions search `@mcp @installed` or
 **Chat: Open Customizations**.
 See [VS Code's server deduplication](https://code.visualstudio.com/updates/v1_118#_workspace-mcpjson-files-and-server-deduplication).
 
-Publishing the definition never opens a browser or a prompt. When the extension
-has saved credentials, the definition it publishes already carries them, so a
-Copilot session can use the server without the editor starting its own OAuth
-flow; that window then keeps the credentials refreshed in the background. A
-window that has never signed in stays idle and contacts nothing. Run **Remote
-Device Hub: Sign In** first: an unauthenticated definition started by a Copilot
-session is handled by the editor's own sign-in, not by this extension.
+The extension publishes its server definition only while it has saved
+credentials, and the definition carries them. A Copilot session can therefore
+use the server directly, and the editor never starts its own OAuth flow for it.
+While you are signed out, the server is not listed. The first time the editor
+looks for it, the extension asks once whether to connect. After a declined,
+cancelled, or failed attempt, or after **Sign Out**, it waits for **Remote Device
+Hub: Sign In** and does not ask again on its own. A window with saved
+credentials keeps them refreshed in the background.
 
 Windows sharing the same extension credential store and host coordinate
 sign-in, refresh, and sign-out through a process lock. They reuse a completed
@@ -110,8 +111,8 @@ Command titles follow the VS Code display language in English, Simplified Chines
 | RDH tools are missing from Chat | Check the Extensions view in the current window. In Remote SSH, confirm RDH is installed on that host. Reload after installing, then start the server in **MCP: List Servers** and enable its tools in the tool picker. |
 | Sign-in does not open or finish | Run **Remote Device Hub: Sign In** and confirm the access explanation. If offered, use **Copy Link** in the local browser. In Remote SSH, keep the SSH window connected while the browser returns to VS Code. Run **Show Status** after sign-in. |
 | No devices are listed, or the target is offline | Check that you signed in to an account with access to the paired device and that the Agent is running. Use a fresh device list to confirm the device ID and status. |
-| The editor shows its own sign-in for RDH, such as a **Dynamic Client Registration not supported** dialog | Cancel that dialog; it is the editor's own sign-in and the redirect URLs it offers are not pages to open. Run **Remote Device Hub: Sign In**, then start the server again. |
-| The native MCP server is missing or stopped | In **MCP: List Servers**, check the server source, then use **Start** or **Show Output**. A separately configured server with the same name has its own authentication. If a running connection still uses rejected credentials after **Show Status** succeeds, restart the MCP server. |
+| The editor shows its own sign-in for RDH, such as a **Dynamic Client Registration not supported** dialog | That sign-in belongs to a separately configured server or the agent plugin, not to this extension, which only publishes its server with credentials. Cancel it; the redirect URLs it offers are not pages to open. Disable that entry in **MCP: List Servers** and run **Remote Device Hub: Sign In**. |
+| The native MCP server is missing or stopped | If RDH is not listed, you are signed out: run **Remote Device Hub: Sign In**. Otherwise, in **MCP: List Servers**, check the server source, then use **Start** or **Show Output**. A separately configured server with the same name has its own authentication. If a running connection still uses rejected credentials after **Show Status** succeeds, restart the MCP server. |
 | Sign-in or the server start stalls | **Show Logs** opens RDH's output. The extension allows 30 seconds for each OAuth metadata request, credential check, or token refresh request. Tool calls run through VS Code's MCP client; use **Show Output** in **MCP: List Servers** for those. |
 | A command was sent, but the result is unconfirmed | Check the original operation with `get_operation_status` using its operation ID or `list_operations` on the device. For an ordinary device call, use `get_call_status` with the Support ID or `list_calls`. Match the record to the device, action, and time before deciding whether to run it again. |
 
@@ -145,7 +146,7 @@ npm test            # Requires permission to listen on temporary 127.0.0.1 ports
 npm run package:vsix
 ```
 
-Press `F5` to launch the Extension Development Host. Confirm that activation and MCP definition discovery make no authentication requests. Start the extension's connection and verify that the access explanation appears before any browser opens. Choose **Continue** to open browser authorization, or cancel and use **Remote Device Hub: Sign In** when ready to retry. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
+Press `F5` to launch the Extension Development Host. With no saved credentials, confirm that the first discovery shows the access explanation before any browser opens, and that no RDH server is listed until sign-in completes. Choose **Continue** to open browser authorization, or cancel and use **Remote Device Hub: Sign In** when ready to retry. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
 
 The automated tests do not execute VS Code's server selection. To validate
 coexistence, install both the VSIX and the RDH agent plugin in the target client
