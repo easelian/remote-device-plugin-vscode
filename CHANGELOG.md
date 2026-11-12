@@ -6,6 +6,14 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-12
+
+### Changed
+
+- Searching the Marketplace for `rdh` now finds the extension: the description
+  names Remote Device Hub (RDH), and `rdh`, `remote device hub`, and `easelian`
+  are keywords.
+
 ## [0.1.0] - 2026-11-12
 
 ### Removed
@@ -86,7 +94,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Last release published without a changelog. See the Git history and GitHub
   releases for earlier changes.
 
-[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.27...v0.1.0
 [0.0.27]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.26...v0.0.27
 [0.0.26]: https://github.com/easelian/remote-device-plugin-vscode/releases/tag/v0.0.26
