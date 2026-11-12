@@ -14,6 +14,7 @@ import {
   REFRESH_RETRY_MS,
   AUTH_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
+  PUBLISH_REFRESH_TIMEOUT_MS,
 } from './authConfig';
 
 // One instance owns authentication work, timers, cancellation, and unsaved
@@ -68,9 +69,48 @@ export class AuthSession implements vscode.Disposable {
       return;
     }
     this.started = true;
-    // Only a consumer starts this session. Other VS Code windows may discover
-    // the same definition while the agent plugin owns the active connection.
+    // A consumer, or saved credentials found during discovery, starts this
+    // session. A window that has never signed in stays idle.
     void this.scheduleRefresh();
+  }
+
+  // Credentials for definition discovery. A Copilot session can use a forwarded
+  // definition without calling resolveMcpServerDefinition, and a definition
+  // without credentials sends the editor into its own OAuth flow. Publish what
+  // is saved: a local read and at most one bounded refresh, never a prompt.
+  async publishableToken(): Promise<TokenSet | undefined> {
+    if (this.disposed) {
+      return undefined;
+    }
+    let saved: TokenSet | undefined;
+    try {
+      saved = await this.store.read();
+    } catch {
+      // Unreadable credentials wait for an explicit Sign In.
+      return undefined;
+    }
+    if (!saved) {
+      return undefined;
+    }
+    // No later callback may announce that the definition is in use, so this
+    // window keeps the published credentials fresh from now on.
+    this.start();
+    if (!saved._refresh_state && !isExpiring(saved)) {
+      return saved;
+    }
+    try {
+      const fresh = await abortable(
+        this.getToken(),
+        new AbortController().signal,
+        'credential refresh for discovery',
+        PUBLISH_REFRESH_TIMEOUT_MS,
+      );
+      return fresh && !isExpiring(fresh) ? fresh : undefined;
+    } catch (e) {
+      // The refresh keeps running; its result republishes the definition.
+      this.log.warn(`definition published without credentials: ${msg(e)}`);
+      return undefined;
+    }
   }
 
   private async scheduleRefresh(): Promise<void> {

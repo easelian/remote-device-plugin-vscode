@@ -3,47 +3,83 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { harness, freshToken, tick, until, TOKEN_KEY } = require('./helpers/authHarness.cjs');
 
-for (const stored of [undefined, freshToken(), { ...freshToken(), _got_at: 0 }, '{broken-json']) {
-  test(`activation and discovery stay idle with ${typeof stored === 'object' ? 'saved credentials' : String(stored)}`, async (t) => {
-    const h = harness(t, {
-      activateOnly: true,
-      clock: { now: Date.now() },
-      shared: { stored: typeof stored === 'object' ? JSON.stringify(stored) : stored },
-    });
+for (const stored of [undefined, '{broken-json']) {
+  test(`activation and discovery stay idle with ${stored ?? 'no'} saved credentials`, async (t) => {
+    const h = harness(t, { activateOnly: true, clock: { now: Date.now() }, shared: { stored } });
     const definitions = await h.provider.provideMcpServerDefinitions();
     await tick();
     assert.equal(definitions.length, 1);
     assert.equal(definitions[0].label, Object.keys(require('../mcp.json').mcpServers)[0]);
     assert.equal(definitions[0].headers, undefined);
     assert.equal(h.requests.length + h.discoveryRequests.length, 0);
-    assert.equal(h.secretReads.length, 0);
     assert.equal(h.signInPrompts.length, 0);
     assert.equal(h.opens.length, 0);
     assert.equal(h.timers.size, 0);
   });
 }
 
-test('three idle windows do not refresh credentials when another window changes them', async (t) => {
-  const shared = { stored: JSON.stringify(freshToken()) };
+test('discovery publishes saved credentials without resolving, prompting, or validating', async (t) => {
+  const h = harness(t, {
+    activateOnly: true,
+    clock: { now: Date.now() },
+    shared: { stored: JSON.stringify(freshToken()) },
+  });
+  const definitions = await h.provider.provideMcpServerDefinitions();
+  assert.equal(definitions[0].headers.Authorization, 'Bearer accepted');
+  assert.equal(h.requests.length, 0);
+  assert.equal(h.signInPrompts.length, 0);
+  assert.equal(h.opens.length, 0);
+  // Saved credentials make this window keep them fresh.
+  await until(() => h.timers.size === 1);
+});
+
+test('discovery refreshes expired saved credentials before publishing them', async (t) => {
+  const h = harness(t, {
+    activateOnly: true,
+    shared: { stored: JSON.stringify({ ...freshToken(), _got_at: 0 }) },
+    onRefresh: () => Response.json({ ...freshToken('rotated'), refresh_token: 'next' }),
+  });
+  const definitions = await h.provider.provideMcpServerDefinitions();
+  assert.equal(definitions[0].headers.Authorization, 'Bearer rotated');
+  assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 1);
+  assert.equal(h.signInPrompts.length, 0);
+  assert.equal(h.opens.length, 0);
+});
+
+test('three discovering windows rotate expired credentials once and all publish the result', async (t) => {
+  const shared = { stored: JSON.stringify({ ...freshToken(), _got_at: 0 }) };
   const scope = randomUUID();
   const windows = Array.from({ length: 3 }, () =>
-    harness(t, { activateOnly: true, shared, scope, clock: { now: Date.now() } }),
+    harness(t, {
+      activateOnly: true,
+      shared,
+      scope,
+      onRefresh: () => Response.json({ ...freshToken('rotated'), refresh_token: 'next' }),
+    }),
+  );
+  const published = await Promise.all(windows.map((h) => h.provider.provideMcpServerDefinitions()));
+  for (const definitions of published) {
+    assert.equal(definitions[0].headers.Authorization, 'Bearer rotated');
+  }
+  assert.equal(
+    windows.flatMap((h) => h.requests).filter((request) => request.url.endsWith('/token')).length,
+    1,
+  );
+  assert.equal(windows.flatMap((h) => h.opens).length, 0);
+});
+
+test('a signed-out window republishes the definition without credentials', async (t) => {
+  const h = harness(t, { token: freshToken() });
+  await h.startup;
+  assert.equal(
+    (await h.provider.provideMcpServerDefinitions())[0].headers.Authorization,
+    'Bearer accepted',
   );
   let changes = 0;
-  for (const h of windows) {
-    h.provider.onDidChangeMcpServerDefinitions(() => changes++);
-    await h.provider.provideMcpServerDefinitions();
-  }
-  shared.stored = JSON.stringify({ ...freshToken(), _got_at: 0 });
-  for (const listener of shared.secretListeners) {
-    listener({ key: TOKEN_KEY });
-  }
-  await tick();
-  assert.equal(changes, windows.length);
-  for (const h of windows) {
-    assert.equal(h.requests.length + h.discoveryRequests.length, 0);
-    assert.equal(h.timers.size, 0);
-  }
+  h.provider.onDidChangeMcpServerDefinitions(() => changes++);
+  await h.commands.get('rdh.signOut')();
+  assert.ok(changes > 0);
+  assert.equal((await h.provider.provideMcpServerDefinitions())[0].headers, undefined);
 });
 
 test('simultaneous first use in three windows opens only one authorization', async (t) => {

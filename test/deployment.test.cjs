@@ -117,7 +117,7 @@ test('packaged deployment governs browser authorization, token exchange, resourc
   assert.equal(h.opens[0].pathname, '/authorize');
   assert.equal(h.opens[0].searchParams.get('resource'), 'https://hub.example:9443/mcp');
   assert.equal(
-    h.provider.provideMcpServerDefinitions()[0].uri.href,
+    (await h.provider.provideMcpServerDefinitions())[0].uri.href,
     'https://hub.example:9443/mcp',
   );
   assert.equal(
@@ -144,7 +144,10 @@ test('User, Remote and workspace endpoint settings cannot redirect credentials',
   });
   await until(() => h.token);
   assert.equal(h.opens[0].origin, MCP_PUBLIC_URL);
-  assert.equal(h.provider.provideMcpServerDefinitions()[0].uri.href, MCP_PUBLIC_URL + '/mcp');
+  assert.equal(
+    (await h.provider.provideMcpServerDefinitions())[0].uri.href,
+    MCP_PUBLIC_URL + '/mcp',
+  );
   assert.equal((await h.provider.resolveMcpServerDefinition()).uri.origin, MCP_PUBLIC_URL);
   await h.commands.get('rdh.signOut')();
   assert.ok(h.requests.every((request) => new URL(request.url).origin === MCP_PUBLIC_URL));
@@ -169,7 +172,10 @@ test('obsolete endpoint settings do not prompt for reload or change an active de
   );
   await h.commands.get('rdh.signOut')();
   assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
-  assert.equal(h.provider.provideMcpServerDefinitions()[0].uri.href, MCP_PUBLIC_URL + '/mcp');
+  assert.equal(
+    (await h.provider.provideMcpServerDefinitions())[0].uri.href,
+    MCP_PUBLIC_URL + '/mcp',
+  );
 });
 
 test('an in-flight refresh stays on its original deployment after settings change', async (t) => {

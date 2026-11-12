@@ -508,23 +508,34 @@ test('a reload cannot retry a rotation whose response existed only in the old ho
   assert.equal(b.opens.length, 0);
 });
 
-test('discovery remains credential free while a requested refresh is in flight', async (t) => {
-  let rejectRefresh;
+test('discovery waits for a refresh in flight and publishes its result', async (t) => {
+  let finishRefresh;
   const h = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
     onRefresh: () =>
-      new Promise((_resolve, reject) => {
-        rejectRefresh = reject;
+      new Promise((resolve) => {
+        finishRefresh = resolve;
       }),
   });
-  await until(() => rejectRefresh);
-  try {
-    const definitions = await h.provider.provideMcpServerDefinitions();
-    assert.equal(definitions[0].headers, undefined);
-  } finally {
-    rejectRefresh(new Error('response lost'));
-  }
-  await until(() => h.logs.some((line) => line.includes('token refresh failed')));
+  await until(() => finishRefresh);
+  const discovering = h.provider.provideMcpServerDefinitions();
+  finishRefresh(Response.json({ ...freshToken('rotated'), refresh_token: 'next' }));
+  assert.equal((await discovering)[0].headers.Authorization, 'Bearer rotated');
+  assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 1);
+  assert.equal(h.opens.length, 0);
+});
+
+test('discovery publishes without credentials when the refresh fails, and never prompts', async (t) => {
+  const h = harness(t, {
+    activateOnly: true,
+    token: { ...freshToken(), _got_at: 0 },
+    onRefresh: async () => {
+      throw new Error('network down');
+    },
+  });
+  const definitions = await h.provider.provideMcpServerDefinitions();
+  assert.equal(definitions[0].headers, undefined);
+  assert.equal(h.signInPrompts.length, 0);
   assert.equal(h.opens.length, 0);
 });
 
