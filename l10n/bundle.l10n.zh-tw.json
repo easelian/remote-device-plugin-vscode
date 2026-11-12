@@ -30,5 +30,6 @@
   "Approval for {0}": "{0} 的核准方式",
   "Could not apply the selected permissions. Change them in Settings and try again.": "無法套用所選權限。請在設定中修改後再試。",
   "Could not save the selected permissions. Change them in Settings and try again.": "無法儲存所選權限。請在設定中修改後再試。",
-  "{0}. If a command was sent, check its status before running it again.": "{0}。如果命令已送出，請先查詢執行狀態，再決定是否重試。"
+  "{0}. If a command was sent, check its status before running it again.": "{0}。如果命令已送出，請先查詢執行狀態，再決定是否重試。",
+  "Long values are shortened in this preview. The complete arguments will be sent.": "此預覽已縮短較長的內容，實際傳送的是完整引數。"
 }

@@ -37,14 +37,30 @@ function delay(ms: number): Promise<void> {
 
 // Listen on one candidate. The owner greets every probe so it is identifiable
 // from inside another process; the greeting carries no credential material.
-function tryListen(port: number, greeting: string): Promise<net.Server | 'in-use'> {
+interface Lock {
+  release(): Promise<void>;
+}
+
+function tryListen(port: number, greeting: string): Promise<Lock | 'in-use'> {
+  const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
     socket.on('error', () => {
       /* A probe may disconnect before it reads the greeting. */
     });
     socket.end(greeting);
   });
-  return new Promise<net.Server | 'in-use'>((resolve, reject) => {
+  // close() waits for every connection to end. A local peer that connects and
+  // never disconnects must not keep the lock, and its caller, pending forever.
+  const release = (): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      for (const socket of sockets) {
+        socket.destroy();
+      }
+    });
+  return new Promise<Lock | 'in-use'>((resolve, reject) => {
     server.once('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'EADDRINUSE') {
         resolve('in-use');
@@ -52,7 +68,7 @@ function tryListen(port: number, greeting: string): Promise<net.Server | 'in-use
         reject(error);
       }
     });
-    server.listen(port, '127.0.0.1', () => resolve(server));
+    server.listen(port, '127.0.0.1', () => resolve({ release }));
   });
 }
 
@@ -92,7 +108,7 @@ export async function withCredentialLock<T>(
   const greeting = `${GREETING_PREFIX}${scopeTag(scope)}\n`;
   const ports = credentialLockPorts(scope);
   const deadline = Date.now() + ACQUIRE_DEADLINE_MS;
-  let owner: net.Server | undefined;
+  let owner: Lock | undefined;
   let peerOwnsLock = false;
   while (!owner) {
     signal?.throwIfAborted();
@@ -142,8 +158,6 @@ export async function withCredentialLock<T>(
     signal?.throwIfAborted();
     return await work();
   } finally {
-    await new Promise<void>((resolve, reject) =>
-      held.close((error) => (error ? reject(error) : resolve())),
-    );
+    await held.release();
   }
 }

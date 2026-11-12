@@ -68,6 +68,32 @@ function permissionChoices(forApproval = false): PermissionChoice[] {
   ];
 }
 
+const APPROVAL_VALUE_LIMIT = 600;
+const APPROVAL_DETAIL_LIMIT = 4000;
+
+// A modal dialog cannot show an unbounded payload. Keep every argument and the
+// start and end of each long value visible, and state how much was left out, so
+// the user never approves content that silently ran off the dialog.
+export function approvalDetail(input: object): { text: string; shortened: boolean } {
+  let shortened = false;
+  const clip = (value: string, limit: number): string => {
+    if (value.length <= limit) {
+      return value;
+    }
+    shortened = true;
+    const head = Math.floor(limit * 0.7);
+    const tail = limit - head;
+    return `${value.slice(0, head)} … [${value.length - limit} characters omitted] … ${value.slice(-tail)}`;
+  };
+  const text = JSON.stringify(
+    input,
+    (_key, value: unknown) =>
+      typeof value === 'string' ? clip(value, APPROVAL_VALUE_LIMIT) : value,
+    2,
+  );
+  return { text: clip(text, APPROVAL_DETAIL_LIMIT), shortened };
+}
+
 export class RunStopped extends Error {
   constructor(
     readonly reason: string,
@@ -318,6 +344,7 @@ export class ChatRun implements vscode.Disposable {
     }
     const runOnce = vscode.l10n.t('Run Once');
     const approvalOptions = vscode.l10n.t('Approval Options…');
+    const detail = approvalDetail(input);
     const choice = await cancellable(
       () =>
         vscode.window.showWarningMessage(
@@ -325,8 +352,13 @@ export class ChatRun implements vscode.Disposable {
           {
             modal: true,
             detail:
-              JSON.stringify(input, null, 2) +
+              detail.text +
               '\n\n' +
+              (detail.shortened
+                ? vscode.l10n.t(
+                    'Long values are shortened in this preview. The complete arguments will be sent.',
+                  ) + '\n'
+                : '') +
               vscode.l10n.t(
                 'Choose Approval Options to decide how later operations are approved.',
               ) +

@@ -1549,3 +1549,30 @@ test('valid RPC errors retain the server code and message', async () => {
   assert.equal(h.calls.length, 1);
   assertClean(h);
 });
+
+test('the approval dialog bounds long arguments and says what was shortened', async () => {
+  const options = { tools: ['write_file'] };
+  const h = setup(options);
+  const content = `${'A'.repeat(50_000)}TAIL`;
+  options.responses = [
+    [new h.Call('c1', 'write_file', { device_id: 'device', path: 'notes.txt', content })],
+  ];
+  await h.run();
+  const detail = h.confirmations[0][1].detail;
+  assert.ok(detail.length < 6000, `detail has ${detail.length} characters`);
+  assert.match(detail, /notes\.txt/);
+  assert.match(detail, /49404 characters omitted/);
+  assert.match(detail, /TAIL/);
+  assert.match(detail, /complete arguments will be sent/);
+});
+
+test('the approval dialog shows short arguments unchanged', async () => {
+  const options = {};
+  const h = setup(options);
+  const input = { device_id: 'device', command: 'echo test' };
+  options.responses = [[new h.Call('c1', 'start_process', input)]];
+  await h.run();
+  const detail = h.confirmations[0][1].detail;
+  assert.ok(detail.startsWith(JSON.stringify(input, null, 2)));
+  assert.doesNotMatch(detail, /shortened/);
+});

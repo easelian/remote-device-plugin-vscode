@@ -30,5 +30,6 @@
   "Approval for {0}": "Approval for {0}",
   "Could not apply the selected permissions. Change them in Settings and try again.": "Could not apply the selected permissions. Change them in Settings and try again.",
   "Could not save the selected permissions. Change them in Settings and try again.": "Could not save the selected permissions. Change them in Settings and try again.",
-  "{0}. If a command was sent, check its status before running it again.": "{0}. If a command was sent, check its status before running it again."
+  "{0}. If a command was sent, check its status before running it again.": "{0}. If a command was sent, check its status before running it again.",
+  "Long values are shortened in this preview. The complete arguments will be sent.": "Long values are shortened in this preview. The complete arguments will be sent."
 }

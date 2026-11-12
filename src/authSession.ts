@@ -108,6 +108,18 @@ export class AuthSession implements vscode.Disposable {
       );
     } catch (e) {
       this.log.warn(`refresh scheduling deferred: ${msg(e)}`);
+      // Unusable credentials wait for the user, and the next storage change
+      // reschedules. Any other failure (discovery, SecretStorage) is transient:
+      // retry, or background refresh stays off until the next explicit use.
+      if (
+        !(e instanceof CredentialError) &&
+        !this.disposed &&
+        generation === this.scheduleGeneration
+      ) {
+        this.refreshTimer = setTimeout(() => {
+          void this.scheduleRefresh();
+        }, REFRESH_RETRY_MS);
+      }
     }
   }
 

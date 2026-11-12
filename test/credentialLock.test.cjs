@@ -85,3 +85,24 @@ test('a lock holder is recognised across processes instead of being skipped', {
   await Promise.all([first, second]);
   assert.deepEqual(order, ['first-in', 'first-out', 'second-in']);
 });
+
+test('a peer that never disconnects does not keep the lock from releasing', {
+  timeout: 10000,
+}, async (t) => {
+  const scope = randomUUID();
+  const [primary] = credentialLockPorts(scope);
+  let idle;
+  t.after(() => idle?.destroy());
+  await withCredentialLock(scope, async () => {
+    // Half-open: this peer reads the greeting but never closes its side.
+    idle = net.connect({ port: primary, host: '127.0.0.1', allowHalfOpen: true });
+    idle.on('error', () => {});
+    idle.resume();
+    await once(idle, 'end');
+  });
+  let entered = false;
+  await withCredentialLock(scope, async () => {
+    entered = true;
+  });
+  assert.equal(entered, true);
+});

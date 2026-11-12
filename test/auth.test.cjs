@@ -1275,3 +1275,23 @@ test('a dispatched rotation persists after disposal without rescheduling or repl
   assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 1);
   assert.equal(h.opens.length, 0);
 });
+
+test('a transient discovery failure does not end background refresh', async (t) => {
+  // Both the first schedule and the one after the failed credential check fail.
+  let attempts = 0;
+  const h = harness(t, {
+    token: freshToken(),
+    clock: { now: Date.now() },
+    beforeAuthMetadata: async () => {
+      if (++attempts <= 2) {
+        throw new Error('network down');
+      }
+    },
+  });
+  await h.startup;
+  await until(() => attempts === 2 && h.timers.size === 1);
+  await h.advance(60_000);
+  await until(() => attempts === 3 && h.timers.size === 1);
+  await h.advance(4_000_000);
+  await until(() => h.requests.some((request) => request.url.includes('/token')));
+});
