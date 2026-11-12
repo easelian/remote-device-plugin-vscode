@@ -1,17 +1,6 @@
 {
-  "capabilities.untrustedWorkspaces.description": "唯讀與要求核准模式在限制模式下可用；完整存取與依任務授權裝置需要受信任的工作區。",
-  "permissions.readOnly": "唯讀",
-  "permissions.ask": "要求核准",
-  "permissions.fullAccess": "完整存取",
-  "permissions.readOnly.description": "檢視裝置、檔案及狀態。禁止修改及執行命令。",
-  "permissions.ask.description": "使用檢查工具時無須確認。其他工具需單次核准。在受信任的工作區中，也可允許目前請求操作指定裝置。",
-  "permissions.fullAccess.description": "執行所有可用的 RDH 工具，不逐次顯示確認視窗。需要受信任的工作區，遠端裝置原有權限仍然有效。",
-  "permissions.description": "用於 `@remote-device-hub` 的權限，該參與者僅在 Local 工作階段中可用。也可透過命令 **Remote Device Hub: 設定聊天權限** 修改。僅使用者或遠端設定可以變更權限。Copilot Agent 直接呼叫 MCP 時使用 VS Code 本身的工具核准。",
-  "duration.description": "每次 @remote-device-hub 請求的總時間限制（分鐘），包含等待時間。0 表示不設總時限，單次網路請求的逾時限制仍然有效。變更時間限制會停止執行中的請求。",
   "command.signIn": "登入",
   "command.signOut": "登出",
   "command.showStatus": "顯示狀態",
-  "command.showLogs": "顯示記錄",
-  "command.setChatPermissions": "設定聊天權限",
-  "chat.description": "僅限 Local 工作階段。描述遠端裝置任務，例如「列出我已授權的裝置」或「檢查裝置的可用磁碟空間」"
+  "command.showLogs": "顯示記錄"
 }

@@ -65,7 +65,6 @@ function harness(t, options = {}) {
   const callbackUris = [];
   const controllers = [];
   let provider;
-  let chatDeps;
   let progressCount = 0;
   let clipboard;
   const clock = options.clock;
@@ -411,16 +410,6 @@ function harness(t, options = {}) {
       if (name === 'vscode') {
         return vscode;
       }
-      if (name === './chat') {
-        return {
-          registerChat(_context, deps) {
-            if (options.chatUnavailable) {
-              throw new TypeError('vscode.chat.createChatParticipant is not a function');
-            }
-            chatDeps = deps;
-          },
-        };
-      }
       if (name === './credentialLock') {
         return require('../../out/credentialLock');
       }
@@ -473,7 +462,6 @@ function harness(t, options = {}) {
     },
     commands,
     provider,
-    chatDeps,
     messages,
     signInPrompts,
     opens,

@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { AuthSession } from './authSession';
 import { CredentialError, msg } from './authErrors';
 import { resolveDeployment, type DeploymentConfig } from './authConfig';
-import { registerChat } from './chat';
 import { isRecord, type TokenSet } from './boundaries';
 
 const PROVIDER_ID = 'easelian.remote-device-hub';
@@ -75,39 +74,6 @@ export function activate(context: vscode.ExtensionContext): void {
   log.info(
     'MCP server definition provider registered; VS Code starts the server on demand (chat / MCP view).',
   );
-
-  // The Chat Participant API serves only the deprecated Local harness. Register
-  // it last and tolerate its absence, so the MCP server, skill, and account
-  // commands keep working in an editor that no longer provides it.
-  try {
-    registerChat(context, {
-      endpoint: deployment.mcpUri,
-      ensureSignedIn: async () => {
-        auth.start();
-        try {
-          if (await auth.getAcceptedToken()) {
-            return true;
-          }
-          await auth.signIn();
-          if (await auth.getAcceptedToken()) {
-            return true;
-          }
-          auth.offerSignIn('No usable saved credentials.');
-        } catch (e) {
-          if (!(e instanceof CredentialError)) {
-            throw e;
-          }
-          auth.offerSignIn(e.message);
-        }
-        return false;
-      },
-      accessToken: async () => (await auth.getToken())?.access_token,
-      log: (message) => log.info(message),
-      version,
-    });
-  } catch (error) {
-    log.warn(`@remote-device-hub is unavailable in this editor: ${msg(error)}`);
-  }
 }
 
 export function deactivate(): void {

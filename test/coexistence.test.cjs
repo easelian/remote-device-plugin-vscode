@@ -183,12 +183,3 @@ test('an unused window stays idle when a used window signs out', async (t) => {
   assert.equal(await b.provider.resolveMcpServerDefinition(), undefined);
   assert.equal(b.opens.length, 0);
 });
-
-test('the MCP server and account commands register without the chat participant API', (t) => {
-  const h = harness(t, { activateOnly: true, chatUnavailable: true });
-  assert.equal(h.provider.provideMcpServerDefinitions().length, 1);
-  for (const command of ['rdh.signIn', 'rdh.signOut', 'rdh.showStatus', 'rdh.showLogs']) {
-    assert.ok(h.commands.has(command), command);
-  }
-  assert.match(JSON.stringify(h.logs), /@remote-device-hub is unavailable in this editor/);
-});
