@@ -14,6 +14,17 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Sharpened the Marketplace description and keywords, and moved the categories
   to `AI` and `Chat`.
 
+### Fixed
+
+- Releasing the credential lock no longer waits for a local peer that connected
+  to the lock port and never disconnected, which could leave sign-in or token
+  refresh pending indefinitely.
+- Background token refresh retries after a transient scheduling failure (for
+  example OAuth discovery while offline) instead of staying off until the next
+  explicit use.
+- The approval dialog for writes and commands shortens long argument values and
+  states how much was omitted, instead of showing an unbounded payload.
+
 ## [0.0.27] - 2026-11-12
 
 ### Added

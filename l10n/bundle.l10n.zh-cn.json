@@ -30,5 +30,6 @@
   "Approval for {0}": "{0} 的审批方式",
   "Could not apply the selected permissions. Change them in Settings and try again.": "无法应用所选权限。请在设置中修改后重试。",
   "Could not save the selected permissions. Change them in Settings and try again.": "无法保存所选权限。请在设置中修改后重试。",
-  "{0}. If a command was sent, check its status before running it again.": "{0}。如果命令已发送，请先查询执行状态，再决定是否重试。"
+  "{0}. If a command was sent, check its status before running it again.": "{0}。如果命令已发送，请先查询执行状态，再决定是否重试。",
+  "Long values are shortened in this preview. The complete arguments will be sent.": "此预览已缩短较长的内容，实际发送的是完整参数。"
 }
