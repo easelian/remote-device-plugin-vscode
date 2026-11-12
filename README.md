@@ -137,7 +137,7 @@ is two spaces, single quotes, semicolons, trailing commas, and one statement per
 line. Type-only imports are explicit; explicit `any` and `@ts-ignore` are rejected.
 Generated files and third-party code are outside the formatting scope.
 
-From the extension repository root, use Node.js 22, as configured in the CI and release workflows.
+From the extension repository root, use Node.js 22.12 or later; the CI and release workflows use the current Node.js 22. Packaging needs that minimum because `@vscode/vsce` 4 loads ES modules with `require`.
 
 ```bash
 npm ci
@@ -188,6 +188,26 @@ PYTHONDONTWRITEBYTECODE=1 "$RDH_SERVER_ROOT/.venv/bin/python" -m pytest \
 The integration tests use the Hub's reference service and simulated discovery metadata. They cover ordinary sign-out, rotation before sign-out, lost refresh responses, and lost revocation responses. They check that the entire authorization is revoked, cached recovery cannot restore it, and other connections remain valid.
 
 For the split-service integration test, set `RDH_TEST_RUST_AUTH` and `RDH_TEST_RUST_MIGRATE` to matching Server binaries and run the same pytest command with `test/server/test_split_auth.py`. It uses the real Auth service and a simulated MCP Gate to verify discovery, first sign-in, refresh, and revocation.
+
+### Releasing
+
+`.github/workflows/release.yml` runs on every push to `main`. When `package.json`
+names a version that has no GitHub Release, it checks style, runs the tests,
+packages the VSIX, creates the release `v<version>`, and publishes that same file
+to the VS Code Marketplace. A push that does not change the version does nothing.
+
+Marketplace publishing uses Trusted Publishing: the job exchanges its GitHub OIDC
+token for a short-lived credential, so the repository stores no publishing
+secret. It needs a policy on the `easelian` publisher (**Trusted Publishing** in
+the [publisher management page](https://marketplace.visualstudio.com/manage/publishers/))
+with repository owner `easelian`, repository `remote-device-plugin-vscode`,
+workflow `release.yml`, and no environment. Without that policy the release is
+still created and only the publishing step fails.
+
+To publish a version whose release already exists, run the workflow manually
+from `main` (**Actions > Release VSIX > Run workflow**). It downloads the VSIX
+from the release and publishes it; a version already on the Marketplace is
+skipped.
 
 ## Project layout
 

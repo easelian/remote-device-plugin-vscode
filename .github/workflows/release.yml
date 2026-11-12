@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: write
+  # Marketplace Trusted Publishing exchanges this job's OIDC token for a
+  # short-lived publishing credential. No publishing secret is stored.
+  id-token: write
 
 jobs:
   release:
@@ -30,16 +33,24 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # A new version is built, released, and published. A manual run also
+      # publishes an existing release, which completes a version released before
+      # publishing was configured or whose publishing failed. Only main and
+      # version tags may publish.
+      - name: Decide whether to publish to the Marketplace
+        id: marketplace
+        run: echo "publish=${{ (steps.check.outputs.skip == 'false' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.marketplace.outputs.publish == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
-        if: steps.check.outputs.skip == 'false'
-        run: npm ci
+        if: steps.check.outputs.skip == 'false' || steps.marketplace.outputs.publish == 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Check code style
         if: steps.check.outputs.skip == 'false'
@@ -61,3 +72,17 @@ jobs:
           name: v${{ steps.version.outputs.value }}
           files: remote-device-hub-${{ steps.version.outputs.value }}.vsix
           generate_release_notes: true
+
+      # Publish the file users can download from the release, not a rebuild.
+      - name: Download the released VSIX
+        if: steps.check.outputs.skip == 'true' && steps.marketplace.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: gh release download "v$VERSION" --pattern "remote-device-hub-$VERSION.vsix"
+
+      - name: Publish to the VS Code Marketplace
+        if: steps.marketplace.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: npx vsce publish --oidc --skip-duplicate --packagePath "remote-device-hub-$VERSION.vsix"
