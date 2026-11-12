@@ -6,7 +6,9 @@ import { registerChat } from './chat';
 import { isRecord, type TokenSet } from './boundaries';
 
 const PROVIDER_ID = 'easelian.remote-device-hub';
-const SERVER_LABEL = 'Remote Device Hub';
+// VS Code groups colliding MCP definitions by label, not endpoint or provider ID.
+// Keep this equal to the server key in the RDH agent plugins.
+const SERVER_LABEL = 'remote-device-hub';
 
 export function activate(context: vscode.ExtensionContext): void {
   const log = vscode.window.createOutputChannel('Remote Device Hub', { log: true });
@@ -38,6 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
   registerChat(context, {
     endpoint: deployment.mcpUri,
     ensureSignedIn: async () => {
+      auth.start();
       try {
         if (await auth.getAcceptedToken()) {
           return true;
@@ -61,24 +64,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const provider: vscode.McpServerDefinitionProvider<vscode.McpHttpServerDefinition> = {
     onDidChangeMcpServerDefinitions: auth.onDidChange,
-    provideMcpServerDefinitions: async () => {
-      // VS Code requests definitions during chat autostart scans or from the MCP view.
-      // Advertise the server before sign-in; resolve handles authentication when it starts.
-      try {
-        const t = await auth.readStoredToken();
-        log.debug(
-          t
-            ? 'definition provided with saved credentials (validated before startup)'
-            : 'definition provided without a token (sign-in will be requested when the server starts)',
-        );
-        return [makeServer(deployment, t)];
-      } catch (e) {
-        log.error(`provideMcpServerDefinitions failed: ${msg(e)}`);
-        return [makeServer(deployment)];
-      }
+    provideMcpServerDefinitions: () => {
+      // Discovery also runs for disabled duplicates. Do not read credentials,
+      // contact the issuer, or start authentication until this definition is used.
+      return [makeServer(deployment)];
     },
     resolveMcpServerDefinition: async () => {
       // Validate credentials before VS Code starts the server; sign in if needed.
+      auth.start();
       try {
         let t = await auth.getAcceptedToken();
         if (!t) {
@@ -86,15 +79,10 @@ export function activate(context: vscode.ExtensionContext): void {
             'server start: no saved credentials; checking whether first-time sign-in is allowed',
           );
           await auth.signIn();
-          t = await auth.getToken();
+          t = await auth.getAcceptedToken();
           if (!t) {
             auth.offerSignIn('No usable saved credentials.');
             return undefined;
-          }
-          if (!(await auth.acceptsToken(t))) {
-            throw new Error(
-              'MCP rejected the new token. Check the account permissions and server configuration.',
-            );
           }
         }
         log.info('MCP server start approved; resolving definition with fresh credentials');
@@ -112,8 +100,6 @@ export function activate(context: vscode.ExtensionContext): void {
   log.info(
     'MCP server definition provider registered; VS Code starts the server on demand (chat / MCP view).',
   );
-
-  auth.start();
 }
 
 export function deactivate(): void {

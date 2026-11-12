@@ -59,6 +59,7 @@ function harness(t, options = {}) {
   const opens = [];
   const requests = [];
   const discoveryRequests = [];
+  const secretReads = [];
   const logs = [];
   const relays = [];
   const callbackUris = [];
@@ -102,9 +103,19 @@ function harness(t, options = {}) {
       },
     },
     EventEmitter: class {
-      event = () => {};
-      fire() {}
-      dispose() {}
+      listeners = new Set();
+      event = (fn) => {
+        this.listeners.add(fn);
+        return { dispose: () => this.listeners.delete(fn) };
+      };
+      fire() {
+        for (const fn of this.listeners) {
+          fn();
+        }
+      }
+      dispose() {
+        this.listeners.clear();
+      }
     },
     Disposable: class {
       constructor(fn) {
@@ -239,6 +250,7 @@ function harness(t, options = {}) {
         };
       },
       async get(key) {
+        secretReads.push(key);
         return key === tokenKey
           ? shared.stored
           : key === authStateKey
@@ -427,6 +439,12 @@ function harness(t, options = {}) {
   };
   const extension = load(require.resolve('../../out/extension.js'));
   extension.activate(context);
+  // Authentication tests exercise a requested connection. Activation-only tests
+  // opt out so that discovery cannot accidentally trigger authentication.
+  const startup = options.activateOnly
+    ? Promise.resolve()
+    : Promise.resolve().then(() => provider.resolveMcpServerDefinition());
+  controllers.push(startup);
   const disposeSession = () => {
     for (const item of context.subscriptions) {
       item.dispose();
@@ -441,6 +459,7 @@ function harness(t, options = {}) {
     }
   });
   return {
+    startup,
     disposeSession,
     refreshKeyPrefix,
     changeConfiguration(key, value) {
@@ -457,6 +476,7 @@ function harness(t, options = {}) {
     opens,
     requests,
     discoveryRequests,
+    secretReads,
     logs,
     callbackUris,
     callback,

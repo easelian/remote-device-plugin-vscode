@@ -68,38 +68,13 @@ export class AuthSession implements vscode.Disposable {
       return;
     }
     this.started = true;
-    // Renew saved credentials silently. Only a first installation may open the
-    // browser without an explicit Sign In action; reloads must not restart OAuth.
-    this.log.info('activation: checking saved credentials with the MCP server');
-    void this.getAcceptedToken()
-      .then(async (t) => {
-        if (this.disposed) {
-          return;
-        }
-        if (!t) {
-          this.log.info(
-            'activation: no saved credentials; checking whether first-time sign-in is allowed',
-          );
-          return this.signIn();
-        } else {
-          if (!(await this.store.hasAuthHistory())) {
-            await this.store.recordAuthHistory({ previously_signed_in: true });
-          }
-          this.log.info(
-            'activation: server accepted saved credentials; browser sign-in is not needed',
-          );
-        }
-      })
-      .catch((e) => {
-        this.log.error(`automatic sign-in check failed: ${msg(e)}`);
-      })
-      .finally(() => {
-        void this.scheduleRefresh();
-      });
+    // Only a consumer starts this session. Other VS Code windows may discover
+    // the same definition while the agent plugin owns the active connection.
+    void this.scheduleRefresh();
   }
 
   private async scheduleRefresh(): Promise<void> {
-    if (this.disposed) {
+    if (!this.started || this.disposed) {
       return;
     }
     const generation = ++this.scheduleGeneration;
@@ -226,26 +201,39 @@ export class AuthSession implements vscode.Disposable {
 
   getAcceptedToken(): Promise<TokenSet | undefined> {
     this.credentialCheckInflight ??= (async () => {
-      let t = await this.getToken();
-      if (this.disposed) {
-        return undefined;
-      }
-      if (t && !(await this.acceptsToken(t))) {
-        this.log.warn('MCP rejected saved credentials; trying token refresh');
-        t = await this.refreshToken(t);
-        if (t && !(await this.acceptsToken(t))) {
-          throw new CredentialError(
-            'mcp_rejected',
-            'The service rejected the renewed credentials. Use Remote Device Hub: Sign In to reconnect.',
-          );
+      for (let attempt = 0; attempt < 4; attempt++) {
+        let t = await this.getToken();
+        if (this.disposed || !t) {
+          return undefined;
         }
-      }
-      if (t) {
+        if (!(await this.acceptsToken(t))) {
+          this.log.warn('MCP rejected saved credentials; trying token refresh');
+          t = await this.refreshToken(t);
+          if (t && !(await this.acceptsToken(t))) {
+            throw new CredentialError(
+              'mcp_rejected',
+              'The service rejected the renewed credentials. Use Remote Device Hub: Sign In to reconnect.',
+            );
+          }
+        }
+        // A ping can finish after another window signs out or changes accounts.
+        // Never hand that earlier credential back to the MCP provider.
+        const current = await this.store.read();
+        if (this.disposed || !current || !t) {
+          return undefined;
+        }
+        if (JSON.stringify(current) !== JSON.stringify(t)) {
+          continue;
+        }
         this.signInNoticeShown = false;
+        return t;
       }
-      return t;
+      throw new Error('Credentials changed repeatedly during validation; try again.');
     })().finally(() => {
       this.credentialCheckInflight = undefined;
+      // A rotation can succeed at the server but fail to persist locally. Its
+      // in-memory response becomes recoverable after the storage event fired.
+      void this.scheduleRefresh();
     });
     return this.credentialCheckInflight;
   }
@@ -495,8 +483,9 @@ export class AuthSession implements vscode.Disposable {
       return Promise.resolve();
     }
     if (!this.signInInflight) {
+      this.start();
       this.signInInflight = (async () => {
-        const history = !explicit && (await this.store.hasAuthHistory());
+        const history = await this.store.hasAuthHistory();
         if (this.disposed) {
           return;
         }
@@ -543,7 +532,7 @@ export class AuthSession implements vscode.Disposable {
               : 'Remote Device Hub: connect your account',
             cancellable: true,
           },
-          (progress, cancellation) => this.runSignIn(progress, cancellation, explicit),
+          (progress, cancellation) => this.runSignIn(progress, cancellation, explicit, history),
         );
       })().finally(() => {
         this.signInInflight = undefined;
@@ -556,6 +545,7 @@ export class AuthSession implements vscode.Disposable {
     progress: vscode.Progress<{ message?: string }>,
     cancellation: vscode.CancellationToken,
     explicit: boolean,
+    requestedHistory: string | undefined,
   ): Promise<void> {
     if (this.disposed) {
       return;
@@ -587,7 +577,8 @@ export class AuthSession implements vscode.Disposable {
             }
             this.log.info(`explicit sign-in will replace unusable saved credentials (${e.reason})`);
           }
-          if (!explicit && (await this.store.hasAuthHistory())) {
+          const history = await this.store.hasAuthHistory();
+          if (history !== requestedHistory || (!explicit && history)) {
             this.log.info(
               'automatic sign-in suppressed: a previous attempt or sign-out is recorded; use Sign In to retry',
             );
@@ -595,7 +586,10 @@ export class AuthSession implements vscode.Disposable {
           }
           // Keep this marker after cancellation, timeout, failure, and reload. A
           // waiting window must not start another browser flow after we release.
-          await this.store.recordAuthHistory({ attempted_at: Date.now() });
+          await this.store.recordAuthHistory({
+            attempted_at: Date.now(),
+            attempt_id: crypto.randomUUID(),
+          });
           signal.throwIfAborted();
           const chinese = vscode.env.language?.toLowerCase().startsWith('zh');
           const continueLabel = chinese ? '继续' : 'Continue';
@@ -847,6 +841,7 @@ export class AuthSession implements vscode.Disposable {
   }
 
   async showStatus(): Promise<void> {
+    this.start();
     let t: TokenSet | undefined;
     try {
       t = await this.getAcceptedToken();

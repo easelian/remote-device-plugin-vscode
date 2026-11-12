@@ -296,7 +296,7 @@ for (const ssh of [false, true]) {
     assert.ok(!h.messages.some((m) => m.includes('sign in to use')));
   });
 }
-test('activation, MCP startup and Sign In share one browser flow', async (t) => {
+test('MCP startup and Sign In share one browser flow', async (t) => {
   const h = harness(t, { hold: true });
   await until(() => h.opens.length);
   const resolving = h.provider.resolveMcpServerDefinition();
@@ -372,16 +372,16 @@ test('sign-out cancels an in-flight login before clearing credentials', async (t
   assert.equal(h.token, undefined);
   await assert.rejects(realFetch(h.callbackUris[0]));
 });
-test('reload preserves rejected credentials and waits for an explicit sign-in', async (t) => {
+test('requested connection preserves rejected credentials and waits for an explicit sign-in', async (t) => {
   const h = harness(t, { token: freshToken('revoked') });
-  await until(() => h.logs.some((line) => line.includes('automatic sign-in check failed')));
+  await h.startup;
   assert.equal(h.token.access_token, 'revoked');
   assert.equal(h.opens.length, 0);
   assert.equal(h.progressCount, 0);
 });
-test('reload retains server-accepted credentials and explains why no browser opens', async (t) => {
+test('requested connection reuses server-accepted credentials without opening a browser', async (t) => {
   const h = harness(t, { token: freshToken() });
-  await until(() => h.logs.some((line) => line.includes('browser sign-in is not needed')));
+  await h.startup;
   assert.equal(h.opens.length, 0);
   assert.equal(h.requests.filter((r) => r.url.endsWith('/mcp')).length, 1);
 });
@@ -509,7 +509,7 @@ test('a reload cannot retry a rotation whose response existed only in the old ho
   assert.equal(b.opens.length, 0);
 });
 
-test('discovery publishes saved headers without waiting for a refresh request', async (t) => {
+test('discovery remains credential free while a requested refresh is in flight', async (t) => {
   let rejectRefresh;
   const h = harness(t, {
     token: { ...freshToken(), _got_at: 0 },
@@ -521,7 +521,7 @@ test('discovery publishes saved headers without waiting for a refresh request', 
   await until(() => rejectRefresh);
   try {
     const definitions = await h.provider.provideMcpServerDefinitions();
-    assert.equal(definitions[0].headers.Authorization, 'Bearer accepted');
+    assert.equal(definitions[0].headers, undefined);
   } finally {
     rejectRefresh(new Error('response lost'));
   }

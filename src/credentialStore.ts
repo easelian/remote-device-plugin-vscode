@@ -62,7 +62,10 @@ export class CredentialStore {
     return this.secrets.get(this.authStateKey);
   }
   recordAuthHistory(
-    state: { attempted_at: number } | { signed_out_at: number } | { previously_signed_in: true },
+    state:
+      | { attempted_at: number; attempt_id: string }
+      | { signed_out_at: number }
+      | { previously_signed_in: true },
   ): Thenable<void> {
     return this.secrets.store(this.authStateKey, JSON.stringify(state));
   }

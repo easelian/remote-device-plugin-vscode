@@ -81,3 +81,19 @@ test('plugin skills are well formed and match the extension contribution', () =>
     assert.doesNotMatch(name, /[:/.]/, 'skill names are unprefixed');
   }
 });
+
+test('the packaged skill has one identity and includes every referenced procedure', () => {
+  const directory = path.join(root, 'skills/remote-device-operations');
+  const text = fs.readFileSync(path.join(directory, 'SKILL.md'), 'utf8');
+  assert.equal(frontmatter(text, 'SKILL.md').name, 'remote-device-operations');
+  for (const [, reference] of text.matchAll(/\]\((references\/[^)]+)\)/g)) {
+    assert.ok(fs.statSync(path.join(directory, reference)).isFile(), reference);
+  }
+  assert.equal(fs.existsSync(path.join(root, 'skills/remote-device/SKILL.md')), false);
+});
+
+test('the supported editor version includes native MCP collision handling', () => {
+  const minimum = /^\^(\d+)\.(\d+)\.(\d+)$/.exec(manifest.engines.vscode);
+  assert.ok(minimum);
+  assert.ok(Number(minimum[1]) > 1 || Number(minimum[2]) >= 118);
+});

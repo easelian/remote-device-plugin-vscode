@@ -10,7 +10,7 @@ Use Copilot Chat or MCP in VS Code to work with your authorized devices. Remote 
 
 Install and pair the **RDH Agent** on each device you want to control. See the [Agent installation and pairing guide](https://github.com/easelian/remote-device-agent#install-and-run) and [Agent distribution guide](https://github.com/easelian/remote-device-agent/blob/main/docs/distribution.md) for supported platforms and downloads.
 
-Install the **VS Code extension** in the editor you use to send requests. It requires VS Code desktop 1.105 or later and uses the extension ID `easelian.remote-device-hub`. You can use a local editor window or a Remote SSH editor window. In Remote SSH, the extension runs on the SSH workspace host, which may be a different machine from the RDH target device. VS Code does not need to be installed on the target device.
+Install the **VS Code extension** in the editor you use to send requests. It requires VS Code desktop 1.118 or later and uses the extension ID `easelian.remote-device-hub`. You can use a local editor window or a Remote SSH editor window. In Remote SSH, the extension runs on the SSH workspace host, which may be a different machine from the RDH target device. VS Code does not need to be installed on the target device.
 
 The Agent must be connected for device operations. File access is limited to the configured shared directories and permissions. Commands require command execution to be enabled and run with the Agent account's OS permissions. Shared directory boundaries do not confine shell commands. Use `device_info` to check the target OS, configured roots, enabled capabilities, and process limits. Optional browser tools are a preview feature. They require a compatible Hub and an Agent with browser sessions enabled. See the [Agent browser guide](https://github.com/easelian/remote-device-agent/blob/main/docs/browser.md).
 
@@ -18,7 +18,7 @@ The Agent must be connected for device operations. File access is limited to the
 
 1. On the target device, start the RDH Agent. For an unpaired device, select the shared directory and approve pairing in the browser. Keep the Agent running.
 2. In the VS Code window you plan to use, run **Extensions: Install from VSIX**, select the RDH `.vsix`, and run **Developer: Reload Window**. For Remote SSH, open the SSH window first and confirm **Remote Device Hub** appears under the SSH host in the Extensions view. See [VS Code extension installation over SSH](https://code.visualstudio.com/docs/remote/ssh#managing-extensions).
-3. When RDH asks to connect your account, choose **Continue** and authorize in the browser on your local machine. Use the RDH account that has access to the paired device. If the prompt was dismissed or sign-in failed, run **Remote Device Hub: Sign In**. Existing valid credentials are reused.
+3. Start the extension's MCP connection, use `@remote-device-hub`, or run **Remote Device Hub: Sign In**. When RDH asks to connect your account, choose **Continue** and authorize in the browser on your local machine. Use the RDH account that has access to the paired device. If the prompt was dismissed or sign-in failed, run **Sign In** to retry. Existing valid credentials are reused. Installing or reloading the extension does not open a login prompt.
 4. Open Chat in the editor window, select a model that supports tool calls, and ask for your devices with the RDH tools enabled. In the Copilot harness, send `List my authorized devices`. In the Local harness, send `@remote-device-hub List my authorized devices.` The response should include the target device ID and connection status. An empty list means the signed-in account has no devices available to list.
 
 The chat model provider must be available in the same extension host as RDH. In Remote SSH, choose a model whose provider is available on the SSH workspace host. If the browser cannot open automatically, choose **Copy Link** and open it in your local browser. The browser must be able to return to the VS Code forwarded callback.
@@ -30,14 +30,42 @@ RDH works with both agent harnesses in VS Code and with other agent clients. Pic
 | Surface | Harness or client | What it provides |
 | --- | --- | --- |
 | Extension-provided MCP server | Any harness that loads the extension, including Copilot | The `remote-device-hub` tools, authenticated by the extension |
-| `remote-device` skill | Any harness that supports Agent Skills | The RDH operating procedure: device lookup, roots, commands, and operation receipts |
+| `remote-device-operations` skill | Any harness that supports Agent Skills | The RDH operating procedure: device lookup, files, processes, browser sessions, and operation receipts |
 | `@remote-device-hub` participant | Local harness only | A participant that runs its own tool loop and approval prompts |
 
 **Copilot harness.** Ask for the task directly, for example `Check free disk space on device <device ID>`, and let the agent call the RDH tools. The skill loads when a request targets a remote device, so you do not need to name the tools. Tools come from the extension's **Remote Device Hub** server: use **MCP: List Servers** to start it if needed, and enable its tools in the chat tool picker. Review any server trust prompt before starting it. In VS Code versions that offer **Chat: Manage Tool Approval**, review approvals for the **Remote Device Hub** source. Those approvals are VS Code's own, so `remoteDeviceHub.chat.permissions` does not apply. See [VS Code tool approvals](https://code.visualstudio.com/docs/agents/run/approvals#manage-tool-approvals).
 
 **Local harness.** Select Local as the session target and mention **`@remote-device-hub`**. The participant connects directly to RDH, keeps its own tool loop, and applies the settings in [Chat permissions and time limits](#chat-permissions-and-time-limits).
 
-**Other agent clients.** The repository root is an Agent Plugins 1.0 package: `plugin.json`, `mcp.json`, and `skills/remote-device/`. Install it with `/plugin install` from the Git repository, or register a local checkout with the experimental `chat.pluginLocations` setting. The plugin authenticates through the client's own OAuth flow and carries no credentials. If the extension is also installed in VS Code, two servers point at the same service; keep one of them enabled.
+**Other agent clients.** The repository root is an Agent Plugins 1.0 package: `plugin.json`, `mcp.json`, and `skills/remote-device-operations/`. Install it with `/plugin install` from the Git repository, or register a local checkout with the experimental `chat.pluginLocations` setting. The plugin authenticates through the client's own OAuth flow and carries no credentials.
+
+### Use the extension and agent plugin together
+
+RDH packages use the MCP server name `remote-device-hub` and the skill name
+`remote-device-operations`. With VS Code's default
+`chat.mcp.collisionBehavior: "disable"`, editor-managed servers with the same
+name are mutually exclusive. A more specific User or Workspace definition can
+take precedence. Selecting `"suffix"` permits multiple connections instead.
+See [VS Code's server deduplication](https://code.visualstudio.com/updates/v1_118#_workspace-mcpjson-files-and-server-deduplication).
+
+The extension publishes its definition without reading credentials, contacting
+RDH, or starting a browser. Authentication and background refresh begin only
+when its connection or participant is used, or you explicitly sign in. A window
+that only discovers the definition stays idle even when another window updates
+the saved credentials.
+
+Windows sharing the same extension credential store and host coordinate
+sign-in, refresh, and sign-out through a process lock. They reuse a completed
+sign-in and serialize refresh-token rotation. A canceled first sign-in does not
+cause queued windows to open another browser. Separate profiles or extension
+hosts may have independent storage and authentication.
+
+Copilot Agent Host sessions also load plugin configuration through their own
+runtime. Check the effective source in that session's **Chat: Open
+Customizations > MCP Servers** controls; editor MCP controls do not necessarily
+manage the runtime connection. Extension commands manage only the extension's
+credentials. A plugin-managed connection uses the host's OAuth and sign-out
+controls. These credential stores are not merged.
 
 The extension provides the MCP server definition to the editor. You do not need to add a duplicate entry to `mcp.json`. VS Code may start the server on demand or when chat discovers tools. If `chat.mcp.autostart` is set to `never`, use **Start** in **MCP: List Servers**. Separate agent sessions that do not load the extension use their harness's MCP configuration. See [VS Code MCP configuration](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
 
@@ -88,7 +116,7 @@ Stopping a chat, reloading VS Code, or timing out does not undo a command alread
 
 The extension connects to `https://rdh.easelian.com/mcp` and discovers the OAuth issuer from the MCP resource metadata. OAuth sign-in uses PKCE and opens in the local browser, including in a Remote SSH window. The extension stores credentials in VS Code SecretStorage, scoped to the MCP resource and bound to the issuer. Sign-in grants the extension access to the account's authorized devices. Pairing a device is a separate approval.
 
-While the extension host is running, the extension refreshes credentials in the background. When the issuing service supports refresh recovery and recovery data is available, the extension can retrieve the result of an interrupted rotation without a new sign-in. Use **Sign In** if the issuer changes or the saved credentials cannot be renewed. **Sign Out** clears local credentials first and asks the authorization service to revoke the connection. If revocation cannot be confirmed, use the RDH account settings to revoke the connection.
+After the extension's authentication session has been used, it refreshes credentials in the background while the extension host is running. When the issuing service supports refresh recovery and recovery data is available, the extension can retrieve the result of an interrupted rotation without a new sign-in. Use **Sign In** if the issuer changes or the saved credentials cannot be renewed. **Sign Out** clears local credentials first and asks the authorization service to revoke the connection. If revocation cannot be confirmed, use the RDH account settings to revoke the connection.
 
 The `@remote-device-hub` participant passes your request, relevant chat context, and RDH tool exchanges to the selected chat model. Tool results may contain remote file contents, paths, and command output. Large results may be shown to the model as partial excerpts. Ask for smaller ranges or read process output incrementally when you need the complete result.
 
@@ -110,9 +138,14 @@ npm test            # Requires permission to listen on temporary 127.0.0.1 ports
 npm run package:vsix
 ```
 
-Press `F5` to launch the Extension Development Host. On a first sign-in, verify that the access explanation appears before any browser opens. Choose **Continue** to open browser authorization, or cancel and use **Remote Device Hub: Sign In** when ready to retry. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
+Press `F5` to launch the Extension Development Host. Confirm that activation and MCP definition discovery make no authentication requests. Start the extension's connection and verify that the access explanation appears before any browser opens. Choose **Continue** to open browser authorization, or cancel and use **Remote Device Hub: Sign In** when ready to retry. Regression tests use simulated VS Code APIs and authentication responses, real HTTP callbacks, and forwarding between different local ports. They do not use real accounts or replace browser testing in an actual Remote SSH session.
 
-To exercise the plugin package instead of the extension, register this checkout with the experimental `chat.pluginLocations` setting and enable it, start a Copilot session, and run `/remote-device-hub:remote-device`. `npm test` validates `plugin.json`, `mcp.json`, and every `SKILL.md`, so the extension and the plugin cannot drift apart.
+To exercise the plugin package instead of the extension, register this checkout with the experimental `chat.pluginLocations` setting and enable it, start a Copilot session, and run `/remote-device-hub:remote-device-operations`. `npm test` validates `plugin.json`, `mcp.json`, and every `SKILL.md`.
+
+Maintain the operating skill and its references in this repository under
+`skills/remote-device-operations/`. Both the VSIX and this repository's agent
+plugin package include these local files. `npm test` checks their identity,
+extension contribution, and referenced procedures.
 
 TypeScript enables `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes`. JSON, saved credentials, OAuth responses, and MCP messages enter through `src/boundaries.ts` as `unknown` and are checked before use. MCP schema checks cover the fields consumed by the extension; they are not a full JSON Schema validator.
 
@@ -147,7 +180,7 @@ For the split-service integration test, set `RDH_TEST_RUST_AUTH` and `RDH_TEST_R
 | `package.json` | Extension metadata, MCP provider, chat participant, skill contribution, commands, and settings |
 | `package.nls*.json`, `l10n/` | Translations for extension contributions and chat UI |
 | `plugin.json`, `mcp.json` | Agent Plugins 1.0 package for clients that do not load the extension |
-| `skills/remote-device/` | RDH operating skill, shipped by the plugin and by `contributes.chatSkills` |
+| `skills/remote-device-operations/` | Locally maintained RDH operating skill and references, shipped by the plugin and by `contributes.chatSkills` |
 
 ## License
 

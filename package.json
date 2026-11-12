@@ -20,7 +20,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.105.0"
+    "vscode": "^1.118.0"
   },
   "categories": [
     "AI",
@@ -86,7 +86,7 @@
     },
     "chatSkills": [
       {
-        "path": "./skills/remote-device/SKILL.md"
+        "path": "./skills/remote-device-operations/SKILL.md"
       }
     ],
     "chatParticipants": [
