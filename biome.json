@@ -6,7 +6,6 @@
       "src/**",
       "test/**",
       "scripts/**",
-      "l10n/**",
       "package.nls*.json",
       "biome.json",
       "package.json",

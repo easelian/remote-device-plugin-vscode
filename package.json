@@ -41,64 +41,17 @@
   ],
   "capabilities": {
     "untrustedWorkspaces": {
-      "supported": "limited",
-      "description": "%capabilities.untrustedWorkspaces.description%"
+      "supported": true
     },
     "virtualWorkspaces": false
   },
   "activationEvents": [
-    "onStartupFinished",
-    "onChatParticipant:easelian.remote-device-hub.chat"
+    "onStartupFinished"
   ],
   "contributes": {
-    "configuration": {
-      "title": "Remote Device Hub",
-      "properties": {
-        "remoteDeviceHub.chat.permissions": {
-          "type": "string",
-          "enum": [
-            "read-only",
-            "ask",
-            "full-access"
-          ],
-          "enumItemLabels": [
-            "%permissions.readOnly%",
-            "%permissions.ask%",
-            "%permissions.fullAccess%"
-          ],
-          "markdownEnumDescriptions": [
-            "%permissions.readOnly.description%",
-            "%permissions.ask.description%",
-            "%permissions.fullAccess.description%"
-          ],
-          "default": "ask",
-          "scope": "machine",
-          "order": 1,
-          "markdownDescription": "%permissions.description%"
-        },
-        "remoteDeviceHub.chat.maxDurationMinutes": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 1440,
-          "default": 60,
-          "scope": "machine",
-          "order": 2,
-          "description": "%duration.description%"
-        }
-      }
-    },
     "chatSkills": [
       {
         "path": "./skills/remote-device-operations/SKILL.md"
-      }
-    ],
-    "chatParticipants": [
-      {
-        "id": "easelian.remote-device-hub.chat",
-        "name": "remote-device-hub",
-        "fullName": "Remote Device Hub",
-        "description": "%chat.description%",
-        "isSticky": true
       }
     ],
     "mcpServerDefinitionProviders": [
@@ -127,11 +80,6 @@
         "command": "rdh.showLogs",
         "title": "%command.showLogs%",
         "category": "Remote Device Hub"
-      },
-      {
-        "command": "rdh.setChatPermissions",
-        "title": "%command.setChatPermissions%",
-        "category": "Remote Device Hub"
       }
     ]
   },
@@ -154,6 +102,5 @@
     "@types/vscode": "~1.118.0",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.6.0"
-  },
-  "l10n": "./l10n"
+  }
 }

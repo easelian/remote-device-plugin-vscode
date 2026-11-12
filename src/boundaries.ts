@@ -1,4 +1,4 @@
-// Values from JSON, SecretStorage, and model providers remain unknown until the
+// Values from JSON and SecretStorage remain unknown until the
 // fields used by the extension have been checked.
 export function parseJson(text: string): unknown {
   return JSON.parse(text);
@@ -6,10 +6,6 @@ export function parseJson(text: string): unknown {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-export function isUnknownArray(value: unknown): value is unknown[] {
-  return Array.isArray(value);
 }
 
 function nonemptyString(value: unknown): value is string {
@@ -87,69 +83,4 @@ export function readClientId(value: unknown): string {
     throw new Error('The registration response has no valid client_id.');
   }
   return value.client_id;
-}
-
-export interface McpInputSchema extends Record<string, unknown> {
-  type: 'object';
-  properties?: Record<string, unknown>;
-  required?: string[];
-}
-
-export interface McpTool {
-  name: string;
-  description?: string;
-  inputSchema: McpInputSchema;
-}
-
-function isInputSchema(value: unknown): value is McpInputSchema {
-  return (
-    isRecord(value) &&
-    value.type === 'object' &&
-    (value.properties === undefined ||
-      (isRecord(value.properties) &&
-        Object.values(value.properties).every(
-          (schema) => typeof schema === 'boolean' || isRecord(schema),
-        ))) &&
-    (value.required === undefined ||
-      (isUnknownArray(value.required) &&
-        value.required.every((name): name is string => typeof name === 'string')))
-  );
-}
-
-export function readMcpTool(value: unknown): McpTool {
-  if (
-    !isRecord(value) ||
-    !nonemptyString(value.name) ||
-    (value.description !== undefined && typeof value.description !== 'string') ||
-    !isInputSchema(value.inputSchema)
-  ) {
-    throw new Error('An MCP tool definition is malformed.');
-  }
-  return {
-    name: value.name,
-    inputSchema: value.inputSchema,
-    ...(typeof value.description === 'string' ? { description: value.description } : {}),
-  };
-}
-
-export function readRpcResult(value: unknown, id: number): Record<string, unknown> {
-  if (!isRecord(value) || value.jsonrpc !== '2.0' || value.id !== id) {
-    throw new Error('The MCP response ID does not match the request.');
-  }
-  if ('error' in value) {
-    if (
-      'result' in value ||
-      !isRecord(value.error) ||
-      typeof value.error.code !== 'number' ||
-      !Number.isInteger(value.error.code) ||
-      typeof value.error.message !== 'string'
-    ) {
-      throw new Error('The MCP error response is malformed.');
-    }
-    throw new Error(`MCP error ${value.error.code}: ${value.error.message}`);
-  }
-  if (!isRecord(value.result)) {
-    throw new Error('The MCP response is missing its result.');
-  }
-  return value.result;
 }

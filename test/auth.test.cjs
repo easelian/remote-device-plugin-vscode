@@ -436,7 +436,6 @@ test('a lost refresh response is not replayed by startup, another host, or reloa
   assert.equal(a.token._refresh_state, 'pending');
   assert.equal(a.token.refresh_token, token.refresh_token);
   assert.equal(await a.provider.resolveMcpServerDefinition(), undefined);
-  assert.equal(await a.chatDeps.ensureSignedIn(), false);
   const b = harness(t, {
     shared: a.shared,
     onRefresh: async () => {

@@ -6,17 +6,25 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Removed
+
+- The `@remote-device-hub` chat participant, its `remoteDeviceHub.chat.permissions`
+  and `remoteDeviceHub.chat.maxDurationMinutes` settings, and the **Set Chat
+  Permissions** command. VS Code has deprecated chat participants and the Local
+  harness that runs them, and the Copilot harness does not load them. Ask for the
+  task directly instead: the extension's MCP server and the
+  `remote-device-operations` skill serve every harness, and tool calls use VS
+  Code's own tool approvals. Saved sign-in is unchanged.
+
 ### Changed
 
+- The extension is fully supported in Restricted Mode. It no longer has features
+  that depend on workspace trust.
 - Rewrote the Marketplace overview: value proposition, architecture diagram,
   example prompts, and a three-step quick start now come first; contributor
   details stay below.
 - Sharpened the Marketplace description and keywords, and moved the categories
   to `AI` and `Chat`.
-- The MCP server, skill, and account commands no longer depend on the Chat
-  Participant API. `@remote-device-hub` is registered last, and an editor
-  without that API still gets everything else. Its description and settings now
-  state that it runs in Local sessions only.
 
 ### Fixed
 
@@ -26,8 +34,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Background token refresh retries after a transient scheduling failure (for
   example OAuth discovery while offline) instead of staying off until the next
   explicit use.
-- The approval dialog for writes and commands shortens long argument values and
-  states how much was omitted, instead of showing an unbounded payload.
 
 ## [0.0.27] - 2026-11-12
 

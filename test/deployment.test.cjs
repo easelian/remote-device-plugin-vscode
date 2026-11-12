@@ -116,7 +116,10 @@ test('packaged deployment governs browser authorization, token exchange, resourc
   assert.equal(h.opens[0].origin, 'https://hub.example:9443');
   assert.equal(h.opens[0].pathname, '/authorize');
   assert.equal(h.opens[0].searchParams.get('resource'), 'https://hub.example:9443/mcp');
-  assert.equal(h.chatDeps.endpoint, 'https://hub.example:9443/mcp');
+  assert.equal(
+    h.provider.provideMcpServerDefinitions()[0].uri.href,
+    'https://hub.example:9443/mcp',
+  );
   assert.equal(
     (await h.provider.resolveMcpServerDefinition()).uri.origin,
     'https://hub.example:9443',
@@ -141,13 +144,12 @@ test('User, Remote and workspace endpoint settings cannot redirect credentials',
   });
   await until(() => h.token);
   assert.equal(h.opens[0].origin, MCP_PUBLIC_URL);
-  assert.equal(h.chatDeps.endpoint, MCP_PUBLIC_URL + '/mcp');
+  assert.equal(h.provider.provideMcpServerDefinitions()[0].uri.href, MCP_PUBLIC_URL + '/mcp');
   assert.equal((await h.provider.resolveMcpServerDefinition()).uri.origin, MCP_PUBLIC_URL);
   await h.commands.get('rdh.signOut')();
   assert.ok(h.requests.every((request) => new URL(request.url).origin === MCP_PUBLIC_URL));
-  const properties = require('../package.json').contributes.configuration.properties;
-  assert.equal(properties['remoteDeviceHub.publicUrl'], undefined);
-  assert.equal(properties['remoteDeviceHub.mcpPublicUrl'], undefined);
+  // The extension contributes no settings, so none can name an endpoint.
+  assert.equal(require('../package.json').contributes.configuration, undefined);
 });
 
 test('obsolete endpoint settings do not prompt for reload or change an active deployment', async (t) => {
@@ -167,7 +169,7 @@ test('obsolete endpoint settings do not prompt for reload or change an active de
   );
   await h.commands.get('rdh.signOut')();
   assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
-  assert.equal(h.chatDeps.endpoint, MCP_PUBLIC_URL + '/mcp');
+  assert.equal(h.provider.provideMcpServerDefinitions()[0].uri.href, MCP_PUBLIC_URL + '/mcp');
 });
 
 test('an in-flight refresh stays on its original deployment after settings change', async (t) => {
