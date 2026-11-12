@@ -33,7 +33,7 @@ RDH works with both agent harnesses in VS Code and with other agent clients. Pic
 | `remote-device-operations` skill | Any harness that supports Agent Skills | The RDH operating procedure: device lookup, files, processes, browser sessions, and operation receipts |
 | `@remote-device-hub` participant | Local harness only | A participant that runs its own tool loop and approval prompts |
 
-**Copilot harness.** Ask for the task directly, for example `Check free disk space on device <device ID>`, and let the agent call the RDH tools. The skill loads when a request targets a remote device, so you do not need to name the tools. Tools come from the extension's **Remote Device Hub** server: use **MCP: List Servers** to start it if needed, and enable its tools in the chat tool picker. Review any server trust prompt before starting it. In VS Code versions that offer **Chat: Manage Tool Approval**, review approvals for the **Remote Device Hub** source. Those approvals are VS Code's own, so `remoteDeviceHub.chat.permissions` does not apply. See [VS Code tool approvals](https://code.visualstudio.com/docs/agents/run/approvals#manage-tool-approvals).
+**Copilot harness.** Ask for the task directly, for example `Check free disk space on device <device ID>`, and let the agent call the RDH tools. The skill loads when a request targets a remote device, so you do not need to name the tools. Tools come from the extension's `remote-device-hub` server: use **MCP: List Servers** to start it if needed, and enable its tools in the chat tool picker. Review any server trust prompt before starting it. In VS Code versions that offer **Chat: Manage Tool Approval**, review approvals for tools from `remote-device-hub`. Those approvals are VS Code's own, so `remoteDeviceHub.chat.permissions` does not apply. See [VS Code tool approvals](https://code.visualstudio.com/docs/agents/run/approvals#manage-tool-approvals).
 
 **Local harness.** Select Local as the session target and mention **`@remote-device-hub`**. The participant connects directly to RDH, keeps its own tool loop, and applies the settings in [Chat permissions and time limits](#chat-permissions-and-time-limits).
 
@@ -145,7 +145,9 @@ To exercise the plugin package instead of the extension, register this checkout 
 Maintain the operating skill and its references in this repository under
 `skills/remote-device-operations/`. Both the VSIX and this repository's agent
 plugin package include these local files. `npm test` checks their identity,
-extension contribution, and referenced procedures.
+extension contribution, and referenced procedures. CI runs these checks through
+`npm test`. Skill copies in other RDH distributions are maintained independently;
+CI does not compare their contents across repositories.
 
 TypeScript enables `strict`, `noUncheckedIndexedAccess`, and `exactOptionalPropertyTypes`. JSON, saved credentials, OAuth responses, and MCP messages enter through `src/boundaries.ts` as `unknown` and are checked before use. MCP schema checks cover the fields consumed by the extension; they are not a full JSON Schema validator.
 

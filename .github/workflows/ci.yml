@@ -18,4 +18,5 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run style:check
-      - run: npm test
+      - name: Test extension and local plugin package
+        run: npm test
