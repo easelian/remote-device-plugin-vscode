@@ -67,11 +67,13 @@ enabled servers through the Extensions search `@mcp @installed` or
 **Chat: Open Customizations**.
 See [VS Code's server deduplication](https://code.visualstudio.com/updates/v1_118#_workspace-mcpjson-files-and-server-deduplication).
 
-The extension publishes its definition without reading credentials, contacting
-RDH, or starting a browser. Authentication and background refresh begin only
-when its connection is used, or you explicitly sign in. A window
-that only discovers the definition stays idle even when another window updates
-the saved credentials.
+Publishing the definition never opens a browser or a prompt. When the extension
+has saved credentials, the definition it publishes already carries them, so a
+Copilot session can use the server without the editor starting its own OAuth
+flow; that window then keeps the credentials refreshed in the background. A
+window that has never signed in stays idle and contacts nothing. Run **Remote
+Device Hub: Sign In** first: an unauthenticated definition started by a Copilot
+session is handled by the editor's own sign-in, not by this extension.
 
 Windows sharing the same extension credential store and host coordinate
 sign-in, refresh, and sign-out through a process lock. They reuse a completed
@@ -108,7 +110,8 @@ Command titles follow the VS Code display language in English, Simplified Chines
 | RDH tools are missing from Chat | Check the Extensions view in the current window. In Remote SSH, confirm RDH is installed on that host. Reload after installing, then start the server in **MCP: List Servers** and enable its tools in the tool picker. |
 | Sign-in does not open or finish | Run **Remote Device Hub: Sign In** and confirm the access explanation. If offered, use **Copy Link** in the local browser. In Remote SSH, keep the SSH window connected while the browser returns to VS Code. Run **Show Status** after sign-in. |
 | No devices are listed, or the target is offline | Check that you signed in to an account with access to the paired device and that the Agent is running. Use a fresh device list to confirm the device ID and status. |
-| The native MCP server is missing, stopped, or asks for its own sign-in | In **MCP: List Servers**, check the server source, then use **Start** or **Show Output**. A separately configured server with the same name has its own authentication. If a running connection still uses rejected credentials after **Show Status** succeeds, restart the MCP server. |
+| The editor shows its own sign-in for RDH, such as a **Dynamic Client Registration not supported** dialog | Cancel that dialog; it is the editor's own sign-in and the redirect URLs it offers are not pages to open. Run **Remote Device Hub: Sign In**, then start the server again. |
+| The native MCP server is missing or stopped | In **MCP: List Servers**, check the server source, then use **Start** or **Show Output**. A separately configured server with the same name has its own authentication. If a running connection still uses rejected credentials after **Show Status** succeeds, restart the MCP server. |
 | Sign-in or the server start stalls | **Show Logs** opens RDH's output. The extension allows 30 seconds for each OAuth metadata request, credential check, or token refresh request. Tool calls run through VS Code's MCP client; use **Show Output** in **MCP: List Servers** for those. |
 | A command was sent, but the result is unconfirmed | Check the original operation with `get_operation_status` using its operation ID or `list_operations` on the device. For an ordinary device call, use `get_call_status` with the Support ID or `list_calls`. Match the record to the device, action, and time before deciding whether to run it again. |
 

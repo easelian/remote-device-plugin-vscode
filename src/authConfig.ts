@@ -60,3 +60,5 @@ export const REFRESH_MARGIN_S = 180;
 export const REFRESH_RETRY_MS = 60 * 1000;
 export const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
 export const REQUEST_TIMEOUT_MS = 30 * 1000;
+// Definition discovery waits this long for a refresh before publishing without credentials.
+export const PUBLISH_REFRESH_TIMEOUT_MS = 10 * 1000;
