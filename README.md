@@ -6,11 +6,13 @@ Work on your other machines from VS Code chat. Remote Device Hub (RDH) lets the 
 
 The Agent on each device connects out to RDH. There is no inbound firewall rule to open, no SSH session to keep alive, and nothing from VS Code to install on the device.
 
+See [RDH terminology and service responsibilities](docs/terminology.md) for the shared product, Agent, authorization and execution concepts.
+
 ## Get started
 
 Requires VS Code 1.118 or later and a chat model that supports tools.
 
-1. **Pair a device.** Install and start the [RDH Agent](https://github.com/easelian/remote-device-agent#install-and-run) on it, choose the folder to share, and approve the pairing in your browser.
+1. **Pair a device.** Install and start the [Remote Device Agent](https://github.com/easelian/remote-device-agent#install-and-run) on it, choose the folder to share, and approve the pairing in your browser.
 2. **Sign in.** Install this extension. It asks once whether to connect, then opens your browser. If you decline, run **Remote Device Hub: Sign In** when you are ready.
 3. **Ask.** Describe the task in chat:
 
