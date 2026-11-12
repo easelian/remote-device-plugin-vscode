@@ -170,12 +170,12 @@ test('obsolete endpoint settings do not prompt for reload or change an active de
     h.messages.some((message) => message.includes('until you reload')),
     false,
   );
-  await h.commands.get('rdh.signOut')();
-  assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
   assert.equal(
     (await h.provider.provideMcpServerDefinitions())[0].uri.href,
     MCP_PUBLIC_URL + '/mcp',
   );
+  await h.commands.get('rdh.signOut')();
+  assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
 });
 
 test('an in-flight refresh stays on its original deployment after settings change', async (t) => {

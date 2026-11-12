@@ -525,7 +525,7 @@ test('discovery waits for a refresh in flight and publishes its result', async (
   assert.equal(h.opens.length, 0);
 });
 
-test('discovery publishes without credentials when the refresh fails, and never prompts', async (t) => {
+test('discovery withholds the definition while a refresh fails, without opening a browser', async (t) => {
   const h = harness(t, {
     activateOnly: true,
     token: { ...freshToken(), _got_at: 0 },
@@ -533,8 +533,19 @@ test('discovery publishes without credentials when the refresh fails, and never 
       throw new Error('network down');
     },
   });
-  const definitions = await h.provider.provideMcpServerDefinitions();
-  assert.equal(definitions[0].headers, undefined);
+  assert.equal((await h.provider.provideMcpServerDefinitions()).length, 0);
+  assert.equal(h.signInPrompts.length, 0);
+  assert.equal(h.opens.length, 0);
+});
+
+test('discovery offers Sign In once when the saved sign-in can no longer be renewed', async (t) => {
+  const h = harness(t, {
+    activateOnly: true,
+    token: { ...freshToken(), _got_at: 0, _refresh_state: 'rejected' },
+  });
+  assert.equal((await h.provider.provideMcpServerDefinitions()).length, 0);
+  assert.equal((await h.provider.provideMcpServerDefinitions()).length, 0);
+  assert.equal(h.messages.filter((message) => message.includes('Sign In')).length, 1);
   assert.equal(h.signInPrompts.length, 0);
   assert.equal(h.opens.length, 0);
 });

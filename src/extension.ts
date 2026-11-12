@@ -39,10 +39,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const provider: vscode.McpServerDefinitionProvider<vscode.McpHttpServerDefinition> = {
     onDidChangeMcpServerDefinitions: auth.onDidChange,
     provideMcpServerDefinitions: async () => {
-      // A Copilot session can use this definition without resolving it, so it
-      // carries saved credentials. Discovery never prompts: without saved
-      // credentials the definition is published as is and the window stays idle.
-      return [makeServer(deployment, await auth.publishableToken())];
+      // A Copilot session can use this definition without resolving it, and
+      // without credentials the editor would start its own OAuth flow. Publish
+      // the server only once it can authenticate; until then the extension asks
+      // the user to sign in.
+      const token = await auth.discoveryToken();
+      return token ? [makeServer(deployment, token)] : [];
     },
     resolveMcpServerDefinition: async () => {
       // Validate credentials before VS Code starts the server; sign in if needed.

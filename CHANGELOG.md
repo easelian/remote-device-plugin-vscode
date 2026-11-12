@@ -22,12 +22,18 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 - The extension is fully supported in Restricted Mode. It no longer has features
   that depend on workspace trust.
-- The MCP server definition now carries saved credentials when it is published,
-  instead of only when the editor resolves it. A Copilot session can use a
-  forwarded definition without resolving it, which left the editor to start its
-  own OAuth flow and show a **Dynamic Client Registration not supported** dialog.
-  A window with saved credentials now keeps them refreshed in the background; a
-  window that has never signed in still stays idle.
+- The MCP server is published only while the extension has saved credentials,
+  and the definition carries them. Previously it carried credentials only when
+  the editor resolved it; a Copilot session can use a forwarded definition
+  without resolving it, which left the editor to start its own OAuth flow and
+  show a **Dynamic Client Registration not supported** dialog. While signed out,
+  the server is no longer listed.
+- The first time the editor looks for the server, the extension asks once
+  whether to connect. A declined, cancelled, or failed attempt, and **Sign Out**,
+  are remembered: after those, only **Sign In** starts authentication.
+- A window with saved credentials keeps them refreshed in the background. A
+  saved sign-in that can no longer be renewed is reported once with a **Sign In**
+  action.
 - Rewrote the Marketplace overview: value proposition, architecture diagram,
   example prompts, and a three-step quick start now come first; contributor
   details stay below.

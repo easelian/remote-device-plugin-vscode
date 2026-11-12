@@ -30,6 +30,7 @@ export class AuthSession implements vscode.Disposable {
   private signInAbort: AbortController | undefined;
   private credentialCheckInflight: Promise<TokenSet | undefined> | undefined;
   private signInNoticeShown = false;
+  private firstSignInOffered = false;
   private pendingTokenSave: { previousRefreshToken: string; next: TokenSet } | undefined;
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
@@ -76,29 +77,26 @@ export class AuthSession implements vscode.Disposable {
 
   // Credentials for definition discovery. A Copilot session can use a forwarded
   // definition without calling resolveMcpServerDefinition, and a definition
-  // without credentials sends the editor into its own OAuth flow. Publish what
-  // is saved: a local read and at most one bounded refresh, never a prompt.
-  async publishableToken(): Promise<TokenSet | undefined> {
+  // without credentials sends the editor into its own OAuth flow. So a
+  // definition is published only with credentials: a local read and at most one
+  // bounded refresh. Without them the caller publishes nothing, and this
+  // session, not the editor, asks the user to sign in.
+  async discoveryToken(): Promise<TokenSet | undefined> {
     if (this.disposed) {
       return undefined;
     }
-    let saved: TokenSet | undefined;
     try {
-      saved = await this.store.read();
-    } catch {
-      // Unreadable credentials wait for an explicit Sign In.
-      return undefined;
-    }
-    if (!saved) {
-      return undefined;
-    }
-    // No later callback may announce that the definition is in use, so this
-    // window keeps the published credentials fresh from now on.
-    this.start();
-    if (!saved._refresh_state && !isExpiring(saved)) {
-      return saved;
-    }
-    try {
+      const saved = await this.store.read();
+      if (!saved) {
+        this.offerFirstSignIn();
+        return undefined;
+      }
+      // No later callback may announce that the definition is in use, so this
+      // window keeps the published credentials fresh from now on.
+      this.start();
+      if (!saved._refresh_state && !isExpiring(saved)) {
+        return saved;
+      }
       const fresh = await abortable(
         this.getToken(),
         new AbortController().signal,
@@ -107,10 +105,31 @@ export class AuthSession implements vscode.Disposable {
       );
       return fresh && !isExpiring(fresh) ? fresh : undefined;
     } catch (e) {
-      // The refresh keeps running; its result republishes the definition.
-      this.log.warn(`definition published without credentials: ${msg(e)}`);
+      if (e instanceof CredentialError) {
+        // The saved sign-in cannot be renewed. Say so once instead of letting
+        // the server silently disappear.
+        this.offerSignIn(e.message);
+      } else {
+        // A refresh still in flight republishes the definition when it lands.
+        this.log.warn(`definition withheld until credentials are renewed: ${msg(e)}`);
+      }
       return undefined;
     }
+  }
+
+  // Ask once, ever. runSignIn records the attempt before it prompts, so a
+  // declined, cancelled, or failed first sign-in is never repeated on its own,
+  // and a signed-out account is never signed back in.
+  private offerFirstSignIn(): void {
+    if (this.firstSignInOffered) {
+      return;
+    }
+    this.firstSignInOffered = true;
+    void (async () => {
+      if (!(await this.store.hasAuthHistory())) {
+        await this.signIn();
+      }
+    })().catch((e) => this.log.warn(`first sign-in was not started: ${msg(e)}`));
   }
 
   private async scheduleRefresh(): Promise<void> {

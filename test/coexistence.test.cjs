@@ -3,20 +3,54 @@ const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 const { harness, freshToken, tick, until, TOKEN_KEY } = require('./helpers/authHarness.cjs');
 
-for (const stored of [undefined, '{broken-json']) {
-  test(`activation and discovery stay idle with ${stored ?? 'no'} saved credentials`, async (t) => {
-    const h = harness(t, { activateOnly: true, clock: { now: Date.now() }, shared: { stored } });
-    const definitions = await h.provider.provideMcpServerDefinitions();
-    await tick();
-    assert.equal(definitions.length, 1);
-    assert.equal(definitions[0].label, Object.keys(require('../mcp.json').mcpServers)[0]);
-    assert.equal(definitions[0].headers, undefined);
-    assert.equal(h.requests.length + h.discoveryRequests.length, 0);
-    assert.equal(h.signInPrompts.length, 0);
-    assert.equal(h.opens.length, 0);
-    assert.equal(h.timers.size, 0);
+test('first discovery asks to connect once, then publishes the signed-in definition', async (t) => {
+  const h = harness(t, { activateOnly: true });
+  let changes = 0;
+  h.provider.onDidChangeMcpServerDefinitions(() => changes++);
+  // No definition without credentials: the editor must never start its own OAuth.
+  assert.equal((await h.provider.provideMcpServerDefinitions()).length, 0);
+  await until(() => h.token);
+  assert.equal(h.signInPrompts.length, 1);
+  assert.equal(h.opens.length, 1);
+  assert.ok(changes > 0);
+  const definitions = await h.provider.provideMcpServerDefinitions();
+  assert.equal(definitions.length, 1);
+  assert.equal(definitions[0].label, Object.keys(require('../mcp.json').mcpServers)[0]);
+  assert.equal(definitions[0].headers.Authorization, 'Bearer accepted');
+  assert.equal(h.signInPrompts.length, 1);
+});
+
+test('a declined first connection is not offered again by later discovery or reloads', async (t) => {
+  const shared = {};
+  const scope = randomUUID();
+  const a = harness(t, { activateOnly: true, shared, scope, confirmSignIn: () => undefined });
+  assert.equal((await a.provider.provideMcpServerDefinitions()).length, 0);
+  await until(() => a.signInPrompts.length === 1 && shared.authState);
+  assert.equal((await a.provider.provideMcpServerDefinitions()).length, 0);
+  // A reloaded window sees the recorded attempt and stays quiet.
+  const b = harness(t, { activateOnly: true, shared, scope, clock: { now: Date.now() } });
+  assert.equal((await b.provider.provideMcpServerDefinitions()).length, 0);
+  await tick();
+  assert.equal(a.signInPrompts.length + b.signInPrompts.length, 1);
+  assert.equal(a.opens.length + b.opens.length, 0);
+  assert.equal(b.requests.length + b.discoveryRequests.length, 0);
+  assert.equal(b.timers.size, 0);
+});
+
+test('unreadable saved credentials withhold the definition and offer Sign In', async (t) => {
+  const h = harness(t, {
+    activateOnly: true,
+    clock: { now: Date.now() },
+    shared: { stored: '{broken-json' },
   });
-}
+  assert.equal((await h.provider.provideMcpServerDefinitions()).length, 0);
+  await tick();
+  assert.equal(h.messages.filter((message) => message.includes('Sign In')).length, 1);
+  assert.equal(h.requests.length + h.discoveryRequests.length, 0);
+  assert.equal(h.signInPrompts.length, 0);
+  assert.equal(h.opens.length, 0);
+  assert.equal(h.timers.size, 0);
+});
 
 test('discovery publishes saved credentials without resolving, prompting, or validating', async (t) => {
   const h = harness(t, {
@@ -68,7 +102,7 @@ test('three discovering windows rotate expired credentials once and all publish 
   assert.equal(windows.flatMap((h) => h.opens).length, 0);
 });
 
-test('a signed-out window republishes the definition without credentials', async (t) => {
+test('a signed-out window withdraws the definition and is not signed back in', async (t) => {
   const h = harness(t, { token: freshToken() });
   await h.startup;
   assert.equal(
@@ -79,7 +113,10 @@ test('a signed-out window republishes the definition without credentials', async
   h.provider.onDidChangeMcpServerDefinitions(() => changes++);
   await h.commands.get('rdh.signOut')();
   assert.ok(changes > 0);
-  assert.equal((await h.provider.provideMcpServerDefinitions())[0].headers, undefined);
+  assert.equal((await h.provider.provideMcpServerDefinitions()).length, 0);
+  await tick();
+  // Signing out is remembered: discovery does not sign the account back in.
+  assert.equal(h.opens.length, 0);
 });
 
 test('simultaneous first use in three windows opens only one authorization', async (t) => {
