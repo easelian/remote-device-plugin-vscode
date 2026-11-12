@@ -1,6 +1,6 @@
 ---
 name: remote-device-operations
-description: Operate Linux, macOS, and Windows devices enrolled with Remote Device Hub. Use for authorized remote device status, file reads and edits, commands, managed jobs, and browser tasks including screenshots, human takeover, uploads, and downloads. Use when the user refers to RDH or a device connected through this plugin; not for unrelated local workspace operations.
+description: Operate the user's paired remote Linux, macOS, and Windows devices through Remote Device Hub (RDH) and the `remote-device-hub` MCP tools. Use for which devices are online, remote device status, reading and editing remote files and logs, disk and process checks, commands, managed jobs, and browser tasks including screenshots, human takeover, uploads, and downloads. Use when the user refers to RDH, Remote Device Hub, a remote or paired device, or a device connected through this plugin. Start with `list_devices`. Not for unrelated local workspace operations.
 ---
 
 # Remote Device Hub
