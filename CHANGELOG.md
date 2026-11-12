@@ -6,6 +6,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.0.28] - 2026-11-12
+
+### Changed
+
+- Rewrote the Marketplace overview: value proposition, architecture diagram,
+  example prompts, and a three-step quick start now come first; contributor
+  details stay below.
+- Sharpened the Marketplace description and keywords, and moved the categories
+  to `AI` and `Chat`.
+
 ## [0.0.27] - 2026-11-12
 
 ### Added
@@ -43,6 +53,7 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Last release published without a changelog. See the Git history and GitHub
   releases for earlier changes.
 
-[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.27...HEAD
+[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.28...HEAD
+[0.0.28]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.27...v0.0.28
 [0.0.27]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.26...v0.0.27
 [0.0.26]: https://github.com/easelian/remote-device-plugin-vscode/releases/tag/v0.0.26

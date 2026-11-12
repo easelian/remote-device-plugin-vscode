@@ -1,8 +1,8 @@
 {
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
-  "description": "Use Copilot Chat or MCP in VS Code to access files and run permitted commands on your authorized devices.",
-  "version": "0.0.27",
+  "description": "Ask Copilot to inspect files, check logs, and run permitted commands on your paired Linux, macOS, and Windows devices.",
+  "version": "0.0.28",
   "publisher": "easelian",
   "author": "Easelian",
   "license": "Apache-2.0",
@@ -24,13 +24,16 @@
   },
   "categories": [
     "AI",
-    "Other"
+    "Chat"
   ],
   "keywords": [
     "mcp",
     "agent",
     "remote",
-    "device"
+    "device",
+    "copilot",
+    "files",
+    "shell"
   ],
   "main": "./out/extension.js",
   "extensionKind": [

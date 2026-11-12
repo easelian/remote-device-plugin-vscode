@@ -2,26 +2,44 @@
 
 ![Easelian Remote Device Hub](resources/icon.png)
 
-Use Copilot Chat or MCP in VS Code to work with your authorized devices. Remote Device Hub (RDH) can inspect and edit shared files, search directories, and run permitted commands on those devices.
+**Work on your other machines without leaving Chat.** Remote Device Hub (RDH) lets Copilot read and edit files, inspect processes, and run permitted commands on the Linux, macOS, and Windows devices you have paired — from the VS Code window you are already in.
 
-[Remote Device Hub](https://rdh.easelian.com) · [Download VSIX](https://github.com/easelian/remote-device-plugin-vscode/releases) · [Report an issue](https://github.com/easelian/remote-device-plugin-vscode/issues)
+![VS Code connects to Remote Device Hub, which reaches the Agent on your device](resources/how-it-works.png)
 
-## Requirements
+No inbound firewall rule, no SSH window to keep open, and no VS Code on the target. The Agent on the device connects out to RDH; this extension only needs an MCP connection and your account.
 
-Install and pair the **RDH Agent** on each device you want to control. See the [Agent installation and pairing guide](https://github.com/easelian/remote-device-agent#install-and-run) and [Agent distribution guide](https://github.com/easelian/remote-device-agent/blob/main/docs/distribution.md) for supported platforms and downloads.
+- **Ask in plain language** — "check free disk space", "tail the last 200 lines of app.log", "restart the service".
+- **Two independent permission gates** — the device decides `allow_write` and `allow_shell`; you decide read-only, ask, or full access in chat.
+- **Bounded by design** — file access stays inside the device's shared roots, every call returns a support ID, and writes can be traced with operation receipts.
+- **Credentials stay local** — OAuth tokens live in VS Code SecretStorage and are never written into settings, logs, or the package.
 
-Install the **VS Code extension** in the editor you use to send requests. It requires VS Code desktop 1.118 or later and uses the extension ID `easelian.remote-device-hub`. You can use a local editor window or a Remote SSH editor window. In Remote SSH, the extension runs on the SSH workspace host, which may be a different machine from the RDH target device. VS Code does not need to be installed on the target device.
+## What you can ask for
 
-The Agent must be connected for device operations. File access is limited to the configured shared directories and permissions. Commands require command execution to be enabled and run with the Agent account's OS permissions. Shared directory boundaries do not confine shell commands. Use `device_info` to check the target OS, configured roots, enabled capabilities, and process limits. Optional browser tools are a preview feature. They require a compatible Hub and an Agent with browser sessions enabled. See the [Agent browser guide](https://github.com/easelian/remote-device-agent/blob/main/docs/browser.md).
+| Task | Example prompt |
+| --- | --- |
+| See your devices | `List my authorized devices` |
+| Check capacity | `Check free disk space on device <device ID>` |
+| Read logs | `Show the last 200 lines of /var/log/myapp/error.log on my build box` |
+| Find things | `Search the workspace for "TODO(rdh)" and list the files` |
+| Change a setting | `In /etc/myapp/settings.toml change log_level to debug and show me the diff` |
+| Run something | `Start make -j4 in workspace and stream the output` |
 
-## Set up and verify the connection
+The same prompts work in the Copilot harness without naming any tool: the `remote-device-operations` skill loads when a request targets a remote device.
 
-1. On the target device, start the RDH Agent. For an unpaired device, select the shared directory and approve pairing in the browser. Keep the Agent running.
-2. In the VS Code window you plan to use, run **Extensions: Install from VSIX**, select the RDH `.vsix`, and run **Developer: Reload Window**. For Remote SSH, open the SSH window first and confirm **Remote Device Hub** appears under the SSH host in the Extensions view. See [VS Code extension installation over SSH](https://code.visualstudio.com/docs/remote/ssh#managing-extensions).
-3. Start the extension's MCP connection, use `@remote-device-hub`, or run **Remote Device Hub: Sign In**. When RDH asks to connect your account, choose **Continue** and authorize in the browser on your local machine. Use the RDH account that has access to the paired device. If the prompt was dismissed or sign-in failed, run **Sign In** to retry. Existing valid credentials are reused. Installing or reloading the extension does not open a login prompt.
-4. Open Chat in the editor window, select a model that supports tool calls, and ask for your devices with the RDH tools enabled. In the Copilot harness, send `List my authorized devices`. In the Local harness, send `@remote-device-hub List my authorized devices.` The response should include the target device ID and connection status. An empty list means the signed-in account has no devices available to list.
+## Quick start
 
-The chat model provider must be available in the same extension host as RDH. In Remote SSH, choose a model whose provider is available on the SSH workspace host. If the browser cannot open automatically, choose **Copy Link** and open it in your local browser. The browser must be able to return to the VS Code forwarded callback.
+1. **Pair the device.** Install and start the **RDH Agent** there, choose the shared directory, and approve the pairing in your browser. See the [Agent installation and pairing guide](https://github.com/easelian/remote-device-agent#install-and-run) and the [distribution guide](https://github.com/easelian/remote-device-agent/blob/main/docs/distribution.md).
+2. **Connect this editor.** Install this extension, then start its server in **MCP: List Servers**, mention `@remote-device-hub`, or run **Remote Device Hub: Sign In**. Authorize in the browser; valid credentials are reused, and installing or reloading never prompts on its own.
+3. **Ask.** Select a model that supports tool calls and send `List my authorized devices`. Then name the device: `Check free disk space on device <device ID>`.
+
+Installing from a downloaded `.vsix` instead: run **Extensions: Install from VSIX**, then **Developer: Reload Window**. In Remote SSH, open the SSH window first and confirm **Remote Device Hub** appears under the SSH host ([managing extensions over SSH](https://code.visualstudio.com/docs/remote/ssh#managing-extensions)); select a model whose provider runs on that host, and use **Copy Link** if the browser cannot return to the forwarded callback.
+
+### Limits worth knowing
+
+- The Agent must be connected. File access stays inside its configured shared roots and permissions.
+- Commands require command execution to be enabled on the device and run with the Agent account's OS permissions. **Shared roots do not confine shell commands.**
+- Browser tools are a preview feature and need a compatible Hub plus an Agent with browser sessions enabled ([browser guide](https://github.com/easelian/remote-device-agent/blob/main/docs/browser.md)).
+- `device_info` reports a device's OS, roots, `allow_write`, `allow_shell`, process limits, and browser availability before you rely on any of them.
 
 ## Use RDH in Chat
 
@@ -122,6 +140,8 @@ After the extension's authentication session has been used, it refreshes credent
 The `@remote-device-hub` participant passes your request, relevant chat context, and RDH tool exchanges to the selected chat model. Tool results may contain remote file contents, paths, and command output. Large results may be shown to the model as partial excerpts. Ask for smaller ranges or read process output incrementally when you need the complete result.
 
 ## Development
+
+This section is for contributors. Using the extension needs none of it.
 
 `npm run format` formats maintained sources and tests. `npm run style:check`
 checks formatting and lint rules without editing files; `npm run lint` runs only
