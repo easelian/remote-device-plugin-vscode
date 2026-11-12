@@ -34,9 +34,9 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - A window with saved credentials keeps them refreshed in the background. A
   saved sign-in that can no longer be renewed is reported once with a **Sign In**
   action.
-- Rewrote the Marketplace overview: value proposition, architecture diagram,
-  example prompts, and a three-step quick start now come first; contributor
-  details stay below.
+- Rewrote the Marketplace overview around what a user needs: what the extension
+  does, three steps to start, its limits, commands, troubleshooting, and
+  privacy. Contributor notes moved to `CONTRIBUTING.md`.
 - Sharpened the Marketplace description and keywords, and moved the categories
   to `AI` and `Chat`.
 
