@@ -31,6 +31,8 @@ interface Dependencies {
   ensureSignedIn(): Promise<boolean>;
   accessToken(): Promise<string | undefined>;
   log?(message: string): void;
+  // Reported to RDH as clientInfo.version. Supplied by activation from the manifest.
+  version?: string;
 }
 
 interface Discovery {
@@ -186,7 +188,7 @@ export class HubClient {
     const result = await this.request('initialize', {
       protocolVersion: this.protocol,
       capabilities: {},
-      clientInfo: { name: 'remote-device-hub-chat', version: '0.0.15' },
+      clientInfo: { name: 'remote-device-hub-chat', version: this.deps.version ?? 'unknown' },
     });
     if (
       typeof result.protocolVersion !== 'string' ||
