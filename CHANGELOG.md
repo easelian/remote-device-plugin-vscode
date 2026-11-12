@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.0.27] - 2026-11-12
+
 ### Added
 
 - Agent Plugins 1.0 package (`plugin.json`, `mcp.json`, `skills/remote-device-operations/`)
@@ -41,5 +43,6 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Last release published without a changelog. See the Git history and GitHub
   releases for earlier changes.
 
-[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.26...HEAD
+[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.27...HEAD
+[0.0.27]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.26...v0.0.27
 [0.0.26]: https://github.com/easelian/remote-device-plugin-vscode/releases/tag/v0.0.26
