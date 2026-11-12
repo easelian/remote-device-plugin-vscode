@@ -2,7 +2,7 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Ask Copilot to inspect files, check logs, and run permitted commands on your paired Linux, macOS, and Windows devices.",
-  "version": "0.0.27",
+  "version": "0.1.0",
   "publisher": "easelian",
   "author": "Easelian",
   "license": "Apache-2.0",
