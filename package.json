@@ -1,8 +1,8 @@
 {
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
-  "description": "Ask Copilot to inspect files, check logs, and run permitted commands on your paired Linux, macOS, and Windows devices.",
-  "version": "0.1.0",
+  "description": "Remote Device Hub (RDH): ask Copilot to inspect files, check logs, and run permitted commands on your paired Linux, macOS, and Windows devices.",
+  "version": "0.1.1",
   "publisher": "easelian",
   "author": "Easelian",
   "license": "Apache-2.0",
@@ -27,6 +27,9 @@
     "Chat"
   ],
   "keywords": [
+    "rdh",
+    "remote device hub",
+    "easelian",
     "mcp",
     "agent",
     "remote",
