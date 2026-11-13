@@ -1,3 +1,4 @@
+import { SafeAuthError } from './authErrors';
 import * as http from 'http';
 
 interface CallbackResult {
@@ -57,7 +58,7 @@ export function startCallbackServer(): Promise<{
     server.listen(0, '127.0.0.1', () => {
       const addr = server.address();
       if (!addr || typeof addr === 'string') {
-        rejectServer(new Error('no port'));
+        rejectServer(new SafeAuthError('no port'));
         return;
       }
       resolveServer({

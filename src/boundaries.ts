@@ -1,3 +1,4 @@
+import { SafeAuthError } from './authErrors';
 // Values from JSON and SecretStorage remain unknown until the
 // fields used by the extension have been checked.
 export function parseJson(text: string): unknown {
@@ -69,7 +70,7 @@ export function readTokenResponse(
         value.expires_in <= 0)) ||
     (value.client_id !== undefined && value.client_id !== clientId)
   ) {
-    throw new Error('The token response has an invalid format.');
+    throw new SafeAuthError('The token response has an invalid format.');
   }
   return {
     access_token: value.access_token,
@@ -80,7 +81,7 @@ export function readTokenResponse(
 
 export function readClientId(value: unknown): string {
   if (!isRecord(value) || !nonemptyString(value.client_id)) {
-    throw new Error('The registration response has no valid client_id.');
+    throw new SafeAuthError('The registration response has no valid client_id.');
   }
   return value.client_id;
 }

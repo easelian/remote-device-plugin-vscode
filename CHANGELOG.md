@@ -6,6 +6,23 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Security
+
+- The access token no longer reaches VS Code's stored server entry. Earlier
+  versions handed VS Code the token so chat could call RDH, and VS Code could
+  write it to disk in plain text. Chat now goes through a proxy the extension
+  runs on `127.0.0.1`; the stored entry holds only that local address and a key
+  that works on this machine while the window is open.
+- After upgrading, run **Sign Out** and then **Sign In**. This revokes the
+  earlier sign-in; updating does not erase copies that older versions left in
+  VS Code's workspace caches.
+- Logs and notifications show only the extension's own messages, never response
+  bodies or arbitrary errors.
+
+### Changed
+
+- Renewing the sign-in no longer restarts the RDH server in chat.
+
 ## [0.1.2] - 2026-11-13
 
 ### Changed

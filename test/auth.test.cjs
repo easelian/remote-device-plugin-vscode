@@ -1,3 +1,4 @@
+const { assertBridge } = require('./helpers/assertBridge.cjs');
 const { MCP_PUBLIC_URL } = require('../out/deploymentDefaults');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -289,10 +290,7 @@ for (const ssh of [false, true]) {
       .update(body.get('code_verifier'))
       .digest('base64url');
     assert.equal(challenge, h.opens[0].searchParams.get('code_challenge'));
-    assert.equal(
-      (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-      'Bearer accepted',
-    );
+    assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
     assert.ok(!h.messages.some((m) => m.includes('sign in to use')));
   });
 }
@@ -305,15 +303,12 @@ test('MCP startup and Sign In share one browser flow', async (t) => {
   assert.equal(h.progressCount, 1);
   await h.callback(h.opens[0]);
   await manual;
-  assert.equal((await resolving).headers.Authorization, 'Bearer accepted');
+  assertBridge(await resolving, h, 'accepted');
   assert.equal(h.opens.length, 1);
 });
 test('accepted stored credentials do not open a browser', async (t) => {
   const h = harness(t, { token: freshToken() });
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(h.opens.length, 0);
   assert.equal(h.signInPrompts.length, 0);
 });
@@ -326,17 +321,11 @@ test('rejected saved credentials stop MCP startup without opening a browser', as
   assert.ok(h.logs.some((line) => line.includes('invalid_grant')));
   await h.commands.get('rdh.signIn')();
   assert.equal(h.opens.length, 1);
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
 });
 test('rejected credentials refresh before invoking browser', async (t) => {
   const h = harness(t, { token: freshToken('revoked'), refreshOk: true });
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(h.opens.length, 0);
 });
 test('MCP outage stops startup without starting OAuth', async (t) => {
@@ -361,7 +350,7 @@ test('cancellation stops waiting, closes callback and prevents MCP startup', asy
 });
 test('SSH forwarding failure is reported and callback is closed', async (t) => {
   const h = harness(t, { tunnelError: true });
-  await until(() => h.messages.some((m) => m.includes('forwarding unavailable')));
+  await until(() => h.messages.some((m) => m.includes('Authentication operation failed')));
   assert.equal(h.opens.length, 0);
   await assert.rejects(realFetch(h.callbackUris[0]));
 });
@@ -394,7 +383,7 @@ test('independent extension hosts share a single browser authorization', async (
   const b = harness(t, { shared, scope, hold: true });
   const resolving = b.provider.resolveMcpServerDefinition();
   await a.callback(a.opens[0]);
-  assert.equal((await resolving).headers.Authorization, 'Bearer accepted');
+  assertBridge(await resolving, b, 'accepted');
   assert.equal(a.opens.length + b.opens.length, 1);
 });
 test('independent hosts rotate an expired refresh token only once', async (t) => {
@@ -450,10 +439,7 @@ test('a lost refresh response is not replayed by startup, another host, or reloa
   await b.commands.get('rdh.signIn')();
   assert.equal(b.opens.length, 1);
   assert.equal(b.token._refresh_state, undefined);
-  assert.equal(
-    (await b.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await b.provider.resolveMcpServerDefinition(), b, 'accepted');
 });
 
 test('a failed credential save retries persistence without rotating again', async (t) => {
@@ -466,10 +452,7 @@ test('a failed credential save retries persistence without rotating again', asyn
   await until(() => h.logs.some((line) => line.includes('secret storage unavailable')));
   assert.equal(h.token._refresh_state, 'pending');
   failSave = false;
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(h.token._refresh_state, undefined);
   assert.equal(h.requests.filter((r) => r.url.endsWith('/token')).length, 1);
   assert.equal(h.opens.length, 0);
@@ -511,6 +494,7 @@ test('a reload cannot retry a rotation whose response existed only in the old ho
 test('discovery waits for a refresh in flight and publishes its result', async (t) => {
   let finishRefresh;
   const h = harness(t, {
+    mcpStatus: 200,
     token: { ...freshToken(), _got_at: 0 },
     onRefresh: () =>
       new Promise((resolve) => {
@@ -520,7 +504,7 @@ test('discovery waits for a refresh in flight and publishes its result', async (
   await until(() => finishRefresh);
   const discovering = h.provider.provideMcpServerDefinitions();
   finishRefresh(Response.json({ ...freshToken('rotated'), refresh_token: 'next' }));
-  assert.equal((await discovering)[0].headers.Authorization, 'Bearer rotated');
+  assertBridge((await discovering)[0], h, 'rotated');
   assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 1);
   assert.equal(h.opens.length, 0);
 });
@@ -700,10 +684,7 @@ test('a committed refresh with a lost response is recovered silently on retry', 
   await until(() => h.logs.some((line) => line.includes('token refresh failed')));
   assert.equal(h.token._refresh_state, 'pending');
   assert.match(h.token._refresh_request_id, /^[A-Za-z0-9_-]{43}$/);
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(server.rotations, 1);
   assert.equal(server.proofs.length, 2);
   assert.equal(h.token._refresh_state, undefined);
@@ -722,10 +703,7 @@ test('a reload on a different host can recover a lost refresh response', async (
   });
   await until(() => a.logs.some((line) => line.includes('token refresh failed')));
   const b = harness(t, { shared: a.shared, recovery: true, onRefresh: server.refresh });
-  assert.equal(
-    (await b.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await b.provider.resolveMcpServerDefinition(), b, 'accepted');
   assert.equal(server.rotations, 1);
   assert.equal(server.proofs.length, 2);
   assert.equal(a.opens.length + b.opens.length, 0);
@@ -790,10 +768,7 @@ test('a stalled refresh stops waiting and recovers the same committed rotation',
   await until(() => h.logs.some((line) => line.includes('Token refresh timed out')));
   assert.equal(firstSignal.aborted, true);
   assert.equal(h.token._refresh_state, 'pending');
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(server.rotations, 1);
   assert.equal(server.proofs.length, 2);
   assert.equal(server.proofs[0], server.proofs[1]);
@@ -814,10 +789,7 @@ test('recovery follows an expired cached rotation before sending MCP requests', 
       });
     },
   });
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(calls, 2);
   assert.equal(h.token.refresh_token, 'next-2');
   assert.equal(h.opens.length, 0);
@@ -854,10 +826,7 @@ test('a definitive first-attempt 404 permits one /token refresh without a proof'
       return Response.json(freshToken());
     },
   });
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(h.requests.filter((r) => r.url.endsWith('/token/refresh')).length, 1);
   assert.equal(h.requests.filter((r) => r.url.endsWith('/token')).length, 1);
   assert.equal(h.token._refresh_request_id, undefined);
@@ -883,10 +852,7 @@ test('recovery keys and proofs are never logged or sent as raw keys', async (t) 
     recovery: true,
     onRefresh: server.refresh,
   });
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   const privateKey = h.shared.extraSecrets.get(REFRESH_KEY_PREFIX + h.token.client_id);
   assert.ok(privateKey);
   assert.ok(!JSON.stringify(h.requests).includes(privateKey));
@@ -1132,10 +1098,7 @@ test('a delayed refresh response preserves a newer credential record', async (t)
     refresh_token: 'newest-refresh',
   });
   finish(Response.json({ ...freshToken(), refresh_token: 'outdated-response' }));
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(h.token.client_id, 'new-client');
   assert.equal(h.token.refresh_token, 'newest-refresh');
 });
@@ -1194,10 +1157,7 @@ test('refresh responses cannot replace local recovery metadata or timestamps', a
         _refresh_recovery: false,
       }),
   });
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, 'accepted');
   assert.equal(h.token._refresh_state, undefined);
   assert.equal(h.token._refresh_request_id, undefined);
   assert.equal(h.token._refresh_recovery, true);

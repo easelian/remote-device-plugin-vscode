@@ -2,7 +2,8 @@ import * as vscode from 'vscode';
 import { AuthSession } from './authSession';
 import { CredentialError, msg } from './authErrors';
 import { resolveDeployment, type DeploymentConfig } from './authConfig';
-import { isRecord, type TokenSet } from './boundaries';
+import { isRecord } from './boundaries';
+import { McpProxy } from './mcpProxy';
 
 const PROVIDER_ID = 'easelian.remote-device-hub';
 // VS Code groups colliding MCP definitions by label, not endpoint or provider ID.
@@ -27,24 +28,43 @@ export function activate(context: vscode.ExtensionContext): void {
     return;
   }
   const auth = new AuthSession(context, log, deployment);
+  const proxy = new McpProxy(auth, log, deployment);
   log.info(`MCP origin: ${deployment.mcpOrigin}; website: ${deployment.publicUrl}`);
   context.subscriptions.push(
     vscode.commands.registerCommand('rdh.signIn', () => auth.signIn(true)),
-    vscode.commands.registerCommand('rdh.signOut', () => auth.signOut()),
+    vscode.commands.registerCommand('rdh.signOut', () => {
+      proxy.disconnect();
+      return auth.signOut();
+    }),
     vscode.commands.registerCommand('rdh.showStatus', () => auth.showStatus()),
     vscode.commands.registerCommand('rdh.showLogs', () => log.show(true)),
     auth,
+    proxy,
   );
 
+  const makeServer = async () => {
+    const launch = await proxy.launch();
+    return new vscode.McpHttpServerDefinition(
+      SERVER_LABEL,
+      vscode.Uri.parse(launch.uri),
+      launch.headers,
+    );
+  };
   const provider: vscode.McpServerDefinitionProvider<vscode.McpHttpServerDefinition> = {
     onDidChangeMcpServerDefinitions: auth.onDidChange,
     provideMcpServerDefinitions: async () => {
-      // A Copilot session can use this definition without resolving it, and
-      // without credentials the editor would start its own OAuth flow. Publish
-      // the server only once it can authenticate; until then the extension asks
-      // the user to sign in.
+      // Copilot can use discovery without resolving. Both paths return the
+      // same loopback proxy definition; it holds no OAuth token and is safe to cache.
       const token = await auth.discoveryToken();
-      return token ? [makeServer(deployment, token)] : [];
+      if (!token) {
+        return [];
+      }
+      try {
+        return [await makeServer()];
+      } catch (e) {
+        log.warn(`MCP definition withheld: ${msg(e)}`);
+        return [];
+      }
     },
     resolveMcpServerDefinition: async () => {
       // Validate credentials before VS Code starts the server; sign in if needed.
@@ -62,8 +82,8 @@ export function activate(context: vscode.ExtensionContext): void {
             return undefined;
           }
         }
-        log.info('MCP server start approved; resolving definition with fresh credentials');
-        return makeServer(deployment, t);
+        log.info('MCP server start approved; resolving local proxy definition');
+        return await makeServer();
       } catch (e) {
         log.error(`resolveMcpServerDefinition failed: ${msg(e)}`);
         if (e instanceof CredentialError) {
@@ -81,12 +101,4 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {
   /* VS Code disposes context subscriptions. */
-}
-
-function makeServer(deployment: DeploymentConfig, t?: TokenSet): vscode.McpHttpServerDefinition {
-  return new vscode.McpHttpServerDefinition(
-    SERVER_LABEL,
-    vscode.Uri.parse(deployment.mcpUri),
-    t ? { Authorization: `Bearer ${t.access_token}` } : undefined,
-  );
 }

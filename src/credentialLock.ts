@@ -1,3 +1,4 @@
+import { SafeAuthError } from './authErrors';
 import * as net from 'net';
 import * as crypto from 'crypto';
 
@@ -147,7 +148,7 @@ export async function withCredentialLock<T>(
     await delay(RETRY_DELAY_MS);
   }
   if (!owner) {
-    throw new Error(
+    throw new SafeAuthError(
       peerOwnsLock
         ? 'Another window is still authenticating; try again later'
         : 'Could not acquire the credential lock; try again later',

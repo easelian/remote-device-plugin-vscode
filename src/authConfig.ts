@@ -1,3 +1,4 @@
+import { SafeAuthError } from './authErrors';
 import { createHash } from 'node:crypto';
 import { PUBLIC_URL, MCP_PUBLIC_URL } from './deploymentDefaults';
 
@@ -12,13 +13,13 @@ export interface DeploymentConfig {
 function origin(value: unknown, fallback: string, name: string): string {
   const input = value === undefined || value === '' ? fallback : value;
   if (typeof input !== 'string') {
-    throw new Error(`${name} must be an HTTPS origin`);
+    throw new SafeAuthError(`${name} must be an HTTPS origin`);
   }
   let url: URL;
   try {
     url = new URL(input);
   } catch {
-    throw new Error(`${name} must be an HTTPS origin`);
+    throw new SafeAuthError(`${name} must be an HTTPS origin`);
   }
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
   if (
@@ -33,7 +34,7 @@ function origin(value: unknown, fallback: string, name: string): string {
     url.search ||
     url.hash
   ) {
-    throw new Error(
+    throw new SafeAuthError(
       `${name} must be an HTTPS origin without credentials, a path, query, or fragment (HTTP is allowed only on loopback)`,
     );
   }

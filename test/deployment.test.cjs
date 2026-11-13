@@ -1,3 +1,4 @@
+const { assertBridge } = require('./helpers/assertBridge.cjs');
 const { readdirSync, readFileSync } = require('node:fs');
 const path = require('node:path');
 const {
@@ -116,14 +117,8 @@ test('packaged deployment governs browser authorization, token exchange, resourc
   assert.equal(h.opens[0].origin, 'https://hub.example:9443');
   assert.equal(h.opens[0].pathname, '/authorize');
   assert.equal(h.opens[0].searchParams.get('resource'), 'https://hub.example:9443/mcp');
-  assert.equal(
-    (await h.provider.provideMcpServerDefinitions())[0].uri.href,
-    'https://hub.example:9443/mcp',
-  );
-  assert.equal(
-    (await h.provider.resolveMcpServerDefinition()).uri.origin,
-    'https://hub.example:9443',
-  );
+  assertBridge((await h.provider.provideMcpServerDefinitions())[0], h, h.token.access_token);
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, h.token.access_token);
   await h.commands.get('rdh.signOut')();
   for (const request of h.requests) {
     assert.equal(new URL(request.url).origin, 'https://hub.example:9443');
@@ -144,11 +139,8 @@ test('User, Remote and workspace endpoint settings cannot redirect credentials',
   });
   await until(() => h.token);
   assert.equal(h.opens[0].origin, MCP_PUBLIC_URL);
-  assert.equal(
-    (await h.provider.provideMcpServerDefinitions())[0].uri.href,
-    MCP_PUBLIC_URL + '/mcp',
-  );
-  assert.equal((await h.provider.resolveMcpServerDefinition()).uri.origin, MCP_PUBLIC_URL);
+  assertBridge((await h.provider.provideMcpServerDefinitions())[0], h, h.token.access_token);
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, h.token.access_token);
   await h.commands.get('rdh.signOut')();
   assert.ok(h.requests.every((request) => new URL(request.url).origin === MCP_PUBLIC_URL));
   // The extension contributes no settings, so none can name an endpoint.
@@ -170,10 +162,7 @@ test('obsolete endpoint settings do not prompt for reload or change an active de
     h.messages.some((message) => message.includes('until you reload')),
     false,
   );
-  assert.equal(
-    (await h.provider.provideMcpServerDefinitions())[0].uri.href,
-    MCP_PUBLIC_URL + '/mcp',
-  );
+  assertBridge((await h.provider.provideMcpServerDefinitions())[0], h, h.token.access_token);
   await h.commands.get('rdh.signOut')();
   assert.equal(h.requests.at(-1).url, MCP_PUBLIC_URL + '/revoke');
 });
@@ -197,7 +186,7 @@ test('an in-flight refresh stays on its original deployment after settings chang
     h.requests.find((request) => request.url.endsWith('/token/refresh')).url,
     'https://first.example/token/refresh',
   );
-  assert.equal((await h.provider.resolveMcpServerDefinition()).uri.origin, 'https://first.example');
+  assertBridge(await h.provider.resolveMcpServerDefinition(), h, h.token.access_token);
   assert.ok(h.requests.every((request) => new URL(request.url).origin === 'https://first.example'));
 });
 
