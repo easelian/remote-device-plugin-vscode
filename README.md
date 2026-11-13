@@ -6,7 +6,7 @@ Work on your other machines from VS Code chat. Remote Device Hub (RDH) lets the 
 
 The Agent on each device connects out to RDH. There is no inbound firewall rule to open, no SSH session to keep alive, and nothing from VS Code to install on the device.
 
-See [RDH terminology and service responsibilities](docs/terminology.md) for the shared product, Agent, authorization and execution concepts.
+See [RDH terminology](docs/terminology.md) for the shared product, Agent, authorization and execution concepts.
 
 ## Get started
 
