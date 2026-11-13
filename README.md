@@ -2,7 +2,7 @@
 
 Work on your other machines from VS Code chat. Remote Device Hub (RDH) lets the chat agent read and edit files, check processes, and run commands on the Linux, macOS, and Windows devices you have paired.
 
-![VS Code connects to Remote Device Hub, which reaches the Agent on your device](resources/how-it-works.png)
+![Copilot in VS Code reaches Linux, Windows, and macOS devices on separate networks through Remote Device Hub](resources/how-it-works.gif)
 
 The Agent on each device connects out to RDH. There is no inbound firewall rule to open, no SSH session to keep alive, and nothing from VS Code to install on the device.
 
