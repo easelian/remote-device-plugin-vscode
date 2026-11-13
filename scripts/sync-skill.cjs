@@ -14,14 +14,42 @@ const SOURCE = 'skills/remote-device-operations';
 // Host-specific wording is the only permitted difference. Each replacement must
 // match exactly once, so a reworded source line fails the sync instead of
 // silently shipping another host's instructions.
+const SOURCE_CONNECTION =
+  "1. If the connection needs authentication, follow the host. In VS Code with the\n   Remote Device Hub extension, the extension owns sign-in: ask the user to run\n   **Remote Device Hub: Sign In** from the Command Palette, and do not start the\n   editor's own MCP OAuth for this server. In other hosts, use the host's MCP\n   server controls or connector settings (`/mcp` in Claude Code or Copilot CLI)\n   and complete OAuth for the connection selected in the current session.\n   Never request passwords, tokens, or pairing secrets in chat, read local\n   credential stores, or invent an Authorization header.";
+
 const TARGETS = {
+  'remote-device-plugin-codex': {
+    directory: 'plugins/remote-device-hub/skills/remote-device-operations',
+    replacements: [
+      {
+        file: 'SKILL.md',
+        from: SOURCE_CONNECTION,
+        to: "1. If the connection needs authentication, use the plugin's Connect action or\n   the host's RDH connector settings. Complete OAuth for the selected connection.\n   Do not copy a publisher's connection ID or create a private custom MCP App\n   as a workaround for an unavailable plugin. The host manages credentials;\n   never request passwords, tokens, or pairing secrets in chat, read local\n   credential stores, or invent an Authorization header.",
+      },
+    ],
+  },
+  'remote-device-plugin-dsh': {
+    directory: 'skills/remote-device-hub',
+    replacements: [
+      {
+        file: 'SKILL.md',
+        from: 'name: remote-device-operations\n',
+        to: 'name: remote-device-hub\n',
+      },
+      {
+        file: 'SKILL.md',
+        from: SOURCE_CONNECTION,
+        to: "1. If the connection needs authentication, use the DeepSeek Harness OAuth\n   bridge. If browser sign-in does not open, ask the user to restart the plugin\n   and check the Harness logs. Never request passwords, tokens, or pairing\n   secrets in chat, read local credential stores, or invent an Authorization\n   header. The profile's approval mode controls prompts; each approval applies\n   to one tool call.",
+      },
+    ],
+  },
   'remote-device-plugin-claude': {
     directory: 'plugins/remote-device-hub/skills/remote-device-operations',
     replacements: [
       {
         file: 'SKILL.md',
-        from: '(`/mcp` in Claude Code or Copilot)',
-        to: '(`/mcp` in Claude Code)',
+        from: SOURCE_CONNECTION,
+        to: "1. If the connection needs authentication, use the host's MCP server controls\n   or connector settings for Remote Device Hub (`/mcp` in Claude Code).\n   Complete OAuth sign-in for the connection selected in the current session.\n   The host manages credentials. Never request passwords, tokens, or pairing secrets in chat,\n   read local credential stores, or invent an Authorization header.",
       },
     ],
   },
