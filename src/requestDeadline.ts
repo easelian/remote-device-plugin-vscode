@@ -1,6 +1,7 @@
+import { SafeAuthError } from './authErrors';
 import { REQUEST_TIMEOUT_MS } from './authConfig';
 
-export class RequestDeadlineError extends Error {
+export class RequestDeadlineError extends SafeAuthError {
   constructor(stage: string) {
     super(`${stage} timed out`);
   }

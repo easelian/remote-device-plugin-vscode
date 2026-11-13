@@ -63,8 +63,12 @@ Search for **Remote Device Hub** in the Command Palette.
 ## Privacy
 
 - The extension connects to `https://rdh.easelian.com` and its sign-in service over HTTPS. Sign-in uses OAuth with PKCE in your browser.
-- Your sign-in is kept in VS Code's secret storage and renewed in the background. It is never written to settings, logs, or the package.
+- Your sign-in is kept in VS Code's secret storage and renewed in the background. The extension has no plaintext file fallback and does not log response bodies or arbitrary authentication errors.
+- In a Remote SSH window the extension runs on the SSH host, next to the chat runtime; install it there. Your sign-in is still kept by VS Code on your own machine. Unlock the system keyring if secret storage is unavailable. VS Code controls the underlying encryption backend; the extension cannot attest its strength through the public SecretStorage API.
+- VS Code chat reaches RDH through a proxy the extension runs on `127.0.0.1`, on the SSH host in a Remote SSH window. The server entry VS Code stores holds that address and a key that works only on that machine while the window is open. Access and refresh tokens are never part of it; the extension adds the current access token only when sending a request to RDH.
 - Tool calls go from VS Code chat to RDH. Results can include remote file contents and command output, and the chat model you selected receives them.
+
+Older extension versions could leave an access token in VS Code workspace caches. After upgrading, use **Sign Out** to revoke the old sign-in, then **Sign In** to reconnect. Updating does not erase historical workspace databases or backups.
 
 ## Other agent clients
 

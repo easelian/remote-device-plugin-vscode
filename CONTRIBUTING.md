@@ -12,7 +12,7 @@ npm run style:check  # Biome format and lint; npm run format rewrites
 npm run package:vsix
 ```
 
-The tests run against simulated VS Code APIs with real loopback callbacks and locks. They do not start VS Code, so they cannot show how the editor selects, forwards, or restarts an MCP server. Check those in a real window, including a Remote SSH window and a Copilot session, before a release.
+The tests run against simulated VS Code APIs with real loopback callbacks and locks. Proxy tests send real HTTP requests through the proxy to a disposable HTTP server. They do not start VS Code, so they cannot show how the editor selects, forwards, or restarts an MCP server. Check those in a real window, including a Remote SSH window and a Copilot session, before a release.
 
 Press `F5` to launch the Extension Development Host. With no saved sign-in, the connection prompt must appear before any browser opens, and no RDH server may be listed until sign-in completes.
 
@@ -20,9 +20,11 @@ Press `F5` to launch the Extension Development Host. With no saved sign-in, the 
 
 These rules are deliberate. Change them only on purpose.
 
-- The MCP server is published only while a sign-in is saved, and the definition carries the credentials. A definition without them would send VS Code into its own OAuth flow.
+- The MCP server is published only while a sign-in is saved. Discovery and resolution return the same loopback proxy definition with no OAuth credentials, so VS Code and Copilot may cache or forward it, and a token renewal does not change it. The proxy adds the current access token only to outbound HTTPS requests.
 - The first time VS Code looks for the server, the extension asks once whether to connect. After a declined, cancelled, or failed attempt, or after **Sign Out**, only **Sign In** starts authentication.
 - A window with a saved sign-in keeps it renewed in the background. A window that has never signed in contacts nothing.
+- The extension is a workspace extension: in Remote SSH it runs on the SSH host, where the chat runtime runs, so the runtime can reach the loopback proxy. The browser callback is forwarded to the client. Do not switch it to a UI extension; the proxy would then be unreachable from the remote runtime.
+- Only application-owned diagnostic messages are logged; never log response bodies or arbitrary transport/storage exceptions.
 - Windows on one host share the sign-in and take turns through a loopback lock, so a refresh token is rotated once.
 - VS Code deduplicates MCP servers by name. The extension and the agent plugin both use `remote-device-hub`, but their sign-ins are separate.
 
@@ -31,6 +33,7 @@ These rules are deliberate. Change them only on purpose.
 | Path | Purpose |
 | --- | --- |
 | `src/extension.ts` | Activation, commands, and the MCP server definition provider |
+| `src/mcpProxy.ts` | Loopback proxy: checks the per-window key, adds the access token, streams the response |
 | `src/authSession.ts` | Sign-in, token refresh and recovery, sign-out |
 | `src/authDiscovery.ts`, `src/authCallback.ts` | OAuth metadata discovery and the browser callback server |
 | `src/credentialStore.ts`, `src/credentialLock.ts` | Secret storage format and the cross-window lock |
@@ -39,6 +42,25 @@ These rules are deliberate. Change them only on purpose.
 | `skills/remote-device-operations/` | The operating skill, shipped in the VSIX and in the plugin package |
 | `plugin.json`, `mcp.json` | Agent Plugins package for clients that do not load the extension |
 | `scripts/sync-skill.cjs` | Copies the skill to the other plugin checkouts |
+
+## Credential boundary
+
+Never put OAuth tokens in MCP definition headers, arguments, environment, URLs, or version fields. VS Code persists discovered definitions in `mcp.extCachedServers` and may copy them to other files. The definition holds a `127.0.0.1` address and a per-window key; the proxy in `src/mcpProxy.ts` is the only place the access token is attached.
+
+Rules the proxy keeps, each covered by a test:
+
+- It listens on `127.0.0.1` only, on a port the system picks, and stops with the window. A cached definition from an earlier window is refused.
+- A request needs the window's key, the proxy's own `Host`, and no `Origin` header, so a web page or a rebound hostname cannot use it.
+- It never answers 401 and never sends `WWW-Authenticate`. Either would start VS Code's own OAuth flow against the proxy.
+- It sends each request once. An upstream 401 is reported as an error, not replayed; redirects are not followed.
+- It forwards a fixed list of headers and passes on no upstream error body.
+- A session belongs to the sign-in that opened it. Sign-out or an account change ends open streams and retires its sessions.
+
+The local key is not a credential for RDH, but while the window is open it lets a local process make tool calls through the proxy. It is protected by the permissions of the files VS Code writes it to, so treat a change that widens who can read those files as a security change.
+
+For a real VS Code cache regression check, run `node scripts/test-vscode-cache.cjs /absolute/path/to/vscode-executable` after compiling. It needs a VS Code that satisfies `engines.vscode`. It launches disposable profiles with fake tokens, reproduces the old leak, then checks that the current extension's `mcp.extCachedServers` record holds the loopback definition and no token. It does not cover the files a Copilot session writes under `agentPlugins/`; check those by hand before a release.
+
+Old versions may have left bearer tokens in workspace databases and backups. Updating prevents new copies; it does not erase old workspace histories. Revoke the previous sign-in, then reconnect. Do not edit VS Code state databases while the editor is running.
 
 ## The operating skill
 

@@ -1,3 +1,4 @@
+const { assertBridge } = require('./helpers/assertBridge.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
@@ -16,7 +17,7 @@ test('first discovery asks to connect once, then publishes the signed-in definit
   const definitions = await h.provider.provideMcpServerDefinitions();
   assert.equal(definitions.length, 1);
   assert.equal(definitions[0].label, Object.keys(require('../mcp.json').mcpServers)[0]);
-  assert.equal(definitions[0].headers.Authorization, 'Bearer accepted');
+  assertBridge(definitions[0], h, 'accepted');
   assert.equal(h.signInPrompts.length, 1);
 });
 
@@ -52,14 +53,14 @@ test('unreadable saved credentials withhold the definition and offer Sign In', a
   assert.equal(h.timers.size, 0);
 });
 
-test('discovery publishes saved credentials without resolving, prompting, or validating', async (t) => {
+test('discovery publishes a credential-free bridge without resolving, prompting, or validating', async (t) => {
   const h = harness(t, {
     activateOnly: true,
     clock: { now: Date.now() },
     shared: { stored: JSON.stringify(freshToken()) },
   });
   const definitions = await h.provider.provideMcpServerDefinitions();
-  assert.equal(definitions[0].headers.Authorization, 'Bearer accepted');
+  assertBridge(definitions[0], h, 'accepted');
   assert.equal(h.requests.length, 0);
   assert.equal(h.signInPrompts.length, 0);
   assert.equal(h.opens.length, 0);
@@ -67,20 +68,20 @@ test('discovery publishes saved credentials without resolving, prompting, or val
   await until(() => h.timers.size === 1);
 });
 
-test('discovery refreshes expired saved credentials before publishing them', async (t) => {
+test('discovery refreshes expired saved credentials before publishing the bridge', async (t) => {
   const h = harness(t, {
     activateOnly: true,
     shared: { stored: JSON.stringify({ ...freshToken(), _got_at: 0 }) },
     onRefresh: () => Response.json({ ...freshToken('rotated'), refresh_token: 'next' }),
   });
   const definitions = await h.provider.provideMcpServerDefinitions();
-  assert.equal(definitions[0].headers.Authorization, 'Bearer rotated');
+  assertBridge(definitions[0], h, 'rotated');
   assert.equal(h.requests.filter((request) => request.url.endsWith('/token')).length, 1);
   assert.equal(h.signInPrompts.length, 0);
   assert.equal(h.opens.length, 0);
 });
 
-test('three discovering windows rotate expired credentials once and all publish the result', async (t) => {
+test('three discovering windows rotate expired credentials once and all publish bridges', async (t) => {
   const shared = { stored: JSON.stringify({ ...freshToken(), _got_at: 0 }) };
   const scope = randomUUID();
   const windows = Array.from({ length: 3 }, () =>
@@ -92,8 +93,8 @@ test('three discovering windows rotate expired credentials once and all publish 
     }),
   );
   const published = await Promise.all(windows.map((h) => h.provider.provideMcpServerDefinitions()));
-  for (const definitions of published) {
-    assert.equal(definitions[0].headers.Authorization, 'Bearer rotated');
+  for (const [index, definitions] of published.entries()) {
+    assertBridge(definitions[0], windows[index], 'rotated');
   }
   assert.equal(
     windows.flatMap((h) => h.requests).filter((request) => request.url.endsWith('/token')).length,
@@ -105,10 +106,7 @@ test('three discovering windows rotate expired credentials once and all publish 
 test('a signed-out window withdraws the definition and is not signed back in', async (t) => {
   const h = harness(t, { token: freshToken() });
   await h.startup;
-  assert.equal(
-    (await h.provider.provideMcpServerDefinitions())[0].headers.Authorization,
-    'Bearer accepted',
-  );
+  assertBridge((await h.provider.provideMcpServerDefinitions())[0], h, 'accepted');
   let changes = 0;
   h.provider.onDidChangeMcpServerDefinitions(() => changes++);
   await h.commands.get('rdh.signOut')();
@@ -137,7 +135,7 @@ test('simultaneous first use in three windows opens only one authorization', asy
     1,
   );
   for (const definition of definitions) {
-    assert.equal(definition.headers.Authorization, 'Bearer accepted');
+    assertBridge(definition, windows[0], 'accepted');
   }
 });
 
@@ -210,7 +208,7 @@ test('a delayed credential check switches to a newer account instead of returnin
     listener({ key: TOKEN_KEY });
   }
   releasePing(Response.json({}));
-  assert.equal((await resolving).headers.Authorization, 'Bearer new-account');
+  assertBridge(await resolving, h, 'new-account');
   assert.equal(h.opens.length, 0);
 });
 

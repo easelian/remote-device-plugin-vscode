@@ -122,6 +122,11 @@ function harness(t, options = {}) {
       }
     },
     ProgressLocation: { Notification: 15 },
+    McpStdioServerDefinition: class {
+      constructor(label, command, args, env) {
+        Object.assign(this, { label, command, args, env });
+      }
+    },
     McpHttpServerDefinition: class {
       constructor(label, uri, headers) {
         Object.assign(this, { label, uri, headers });
@@ -225,6 +230,9 @@ function harness(t, options = {}) {
     const target = new URL(uri.searchParams.get('redirect_uri'));
     if (options.callbackError) {
       target.searchParams.set('error', options.callbackError);
+      if (options.callbackErrorDescription) {
+        target.searchParams.set('error_description', options.callbackErrorDescription);
+      }
     } else {
       target.searchParams.set('code', 'test-code');
     }
@@ -237,6 +245,7 @@ function harness(t, options = {}) {
     await res.text();
   }
   const context = {
+    extensionPath: path.resolve(__dirname, '../..'),
     globalStorageUri: { fsPath: scope },
     subscriptions: [],
     secrets: {
@@ -258,7 +267,7 @@ function harness(t, options = {}) {
       },
       async store(key, value) {
         if (options.failStore?.(key, value)) {
-          throw new Error('secret storage unavailable');
+          throw new Error(options.storeError || 'secret storage unavailable');
         }
         if (key === tokenKey) {
           shared.stored = value;
@@ -288,6 +297,7 @@ function harness(t, options = {}) {
   const runtime = vm.createContext({
     URL,
     URLSearchParams,
+    Headers,
     Buffer,
     AbortSignal,
     AbortController,

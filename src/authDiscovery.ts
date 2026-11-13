@@ -1,3 +1,4 @@
+import { SafeAuthError } from './authErrors';
 import { isIP } from 'net';
 import { isRecord } from './boundaries';
 import { SCOPE, type DeploymentConfig } from './authConfig';
@@ -17,13 +18,13 @@ const MAX_METADATA_BYTES = 64 * 1024;
 
 function validatedUrl(value: unknown, name: string): URL {
   if (typeof value !== 'string' || value !== value.trim() || /[\\\u0000-\u0020]/u.test(value)) {
-    throw new Error(`OAuth metadata has an invalid ${name}.`);
+    throw new SafeAuthError(`OAuth metadata has an invalid ${name}.`);
   }
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error(`OAuth metadata has an invalid ${name}.`);
+    throw new SafeAuthError(`OAuth metadata has an invalid ${name}.`);
   }
   const loopback =
     ['localhost', '[::1]'].includes(url.hostname) ||
@@ -35,7 +36,7 @@ function validatedUrl(value: unknown, name: string): URL {
     url.search ||
     url.hash
   ) {
-    throw new Error(`OAuth metadata has an unsafe ${name}.`);
+    throw new SafeAuthError(`OAuth metadata has an unsafe ${name}.`);
   }
   return url;
 }
@@ -46,14 +47,14 @@ function endpoint(value: unknown, issuer: URL, name: string, required = true): s
   }
   const url = validatedUrl(value, name);
   if (url.origin !== issuer.origin) {
-    throw new Error(`OAuth metadata has a cross-origin ${name}.`);
+    throw new SafeAuthError(`OAuth metadata has a cross-origin ${name}.`);
   }
   return url.href;
 }
 
 function supports(value: unknown, required: string, name: string): void {
   if (value !== undefined && (!Array.isArray(value) || !value.includes(required))) {
-    throw new Error(`OAuth metadata does not support ${name}.`);
+    throw new SafeAuthError(`OAuth metadata does not support ${name}.`);
   }
 }
 
@@ -67,10 +68,10 @@ async function metadata(url: string): Promise<Record<string, unknown>> {
     signal.throwIfAborted();
     if (!response.ok) {
       void response.body?.cancel().catch(() => {});
-      throw new Error(`OAuth discovery failed with HTTP ${response.status}.`);
+      throw new SafeAuthError(`OAuth discovery failed with HTTP ${response.status}.`);
     }
     if (!response.body) {
-      throw new Error('OAuth discovery returned an empty response.');
+      throw new SafeAuthError('OAuth discovery returned an empty response.');
     }
     const reader = response.body.getReader();
     const chunks: Buffer[] = [];
@@ -84,7 +85,7 @@ async function metadata(url: string): Promise<Record<string, unknown>> {
         }
         size += part.value.byteLength;
         if (size > MAX_METADATA_BYTES) {
-          throw new Error('OAuth discovery response is too large.');
+          throw new SafeAuthError('OAuth discovery response is too large.');
         }
         chunks.push(Buffer.from(part.value));
       }
@@ -95,10 +96,10 @@ async function metadata(url: string): Promise<Record<string, unknown>> {
     try {
       parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } catch {
-      throw new Error('OAuth discovery returned invalid JSON.');
+      throw new SafeAuthError('OAuth discovery returned invalid JSON.');
     }
     if (!isRecord(parsed)) {
-      throw new Error('OAuth discovery returned invalid metadata.');
+      throw new SafeAuthError('OAuth discovery returned invalid metadata.');
     }
     return parsed;
   }, 'OAuth discovery');
@@ -111,20 +112,22 @@ export async function discoverAuth(deployment: DeploymentConfig): Promise<AuthEn
     `${resourceUrl.origin}/.well-known/oauth-protected-resource${resourceUrl.pathname}`,
   );
   if (resourceMetadata.resource !== deployment.resource) {
-    throw new Error('OAuth resource metadata does not match the configured MCP resource.');
+    throw new SafeAuthError('OAuth resource metadata does not match the configured MCP resource.');
   }
   const servers = resourceMetadata.authorization_servers;
   if (!Array.isArray(servers) || servers.length !== 1 || typeof servers[0] !== 'string') {
-    throw new Error('OAuth resource metadata must identify one authorization server.');
+    throw new SafeAuthError('OAuth resource metadata must identify one authorization server.');
   }
   supports(resourceMetadata.scopes_supported, SCOPE, 'the required resource scope');
   const issuer = validatedUrl(servers[0], 'issuer');
   if (issuer.pathname !== '/' || issuer.href !== servers[0]) {
-    throw new Error('OAuth metadata has a noncanonical issuer.');
+    throw new SafeAuthError('OAuth metadata has a noncanonical issuer.');
   }
   const auth = await metadata(`${issuer.origin}/.well-known/oauth-authorization-server`);
   if (auth.issuer !== servers[0]) {
-    throw new Error('OAuth authorization-server issuer does not match the resource metadata.');
+    throw new SafeAuthError(
+      'OAuth authorization-server issuer does not match the resource metadata.',
+    );
   }
   supports(auth.scopes_supported, SCOPE, 'the required authorization scope');
   supports(auth.response_types_supported, 'code', 'authorization codes');
@@ -136,7 +139,7 @@ export async function discoverAuth(deployment: DeploymentConfig): Promise<AuthEn
     auth.authorization_response_iss_parameter_supported !== undefined &&
     typeof auth.authorization_response_iss_parameter_supported !== 'boolean'
   ) {
-    throw new Error('OAuth metadata has an invalid authorization response issuer policy.');
+    throw new SafeAuthError('OAuth metadata has an invalid authorization response issuer policy.');
   }
   return Object.freeze({
     issuer: servers[0],

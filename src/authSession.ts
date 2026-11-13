@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { withCredentialLock } from './credentialLock';
 import { CredentialStore, type RevocationCredential } from './credentialStore';
-import { CredentialError, msg } from './authErrors';
+import { CredentialError, SafeAuthError, callbackError, msg } from './authErrors';
 import { discoverAuth, type AuthEndpoints } from './authDiscovery';
 import { startCallbackServer } from './authCallback';
 import { abortable, withRequestDeadline } from './requestDeadline';
@@ -75,12 +75,9 @@ export class AuthSession implements vscode.Disposable {
     void this.scheduleRefresh();
   }
 
-  // Credentials for definition discovery. A Copilot session can use a forwarded
-  // definition without calling resolveMcpServerDefinition, and a definition
-  // without credentials sends the editor into its own OAuth flow. So a
-  // definition is published only with credentials: a local read and at most one
-  // bounded refresh. Without them the caller publishes nothing, and this
-  // session, not the editor, asks the user to sign in.
+  // Discovery readiness only. The returned token stays inside the extension;
+  // cached MCP definitions carry only the private bridge's launch metadata.
+  // A local read and at most one bounded refresh keep first discovery cheap.
   async discoveryToken(): Promise<TokenSet | undefined> {
     if (this.disposed) {
       return undefined;
@@ -92,7 +89,7 @@ export class AuthSession implements vscode.Disposable {
         return undefined;
       }
       // No later callback may announce that the definition is in use, so this
-      // window keeps the published credentials fresh from now on.
+      // window keeps its credentials fresh from now on.
       this.start();
       if (!saved._refresh_state && !isExpiring(saved)) {
         return saved;
@@ -209,7 +206,7 @@ export class AuthSession implements vscode.Disposable {
         return t;
       }
     }
-    throw new Error(
+    throw new SafeAuthError(
       'Credential recovery is still in progress; retry after the next scheduled refresh.',
     );
   }
@@ -299,7 +296,7 @@ export class AuthSession implements vscode.Disposable {
         this.signInNoticeShown = false;
         return t;
       }
-      throw new Error('Credentials changed repeatedly during validation; try again.');
+      throw new SafeAuthError('Credentials changed repeatedly during validation; try again.');
     })().finally(() => {
       this.credentialCheckInflight = undefined;
       // A rotation can succeed at the server but fail to persist locally. Its
@@ -350,7 +347,7 @@ export class AuthSession implements vscode.Disposable {
       return false;
     }
     if (!resp.ok) {
-      throw new Error(`MCP credential check failed: HTTP ${resp.status}`);
+      throw new SafeAuthError(`MCP credential check failed: HTTP ${resp.status}`);
     }
     return true;
   }
@@ -401,7 +398,7 @@ export class AuthSession implements vscode.Disposable {
     }
     // The client-only recovery key is stored separately from OAuth responses and
     // token records. A stolen token pair cannot derive a future recovery proof.
-    // New grants create this key before publishing their credentials to hosts.
+    // New grants create this key before making their credentials available locally.
     let requestId = t._refresh_request_id;
     if (t._refresh_recovery && endpoints.refreshUri && !requestId) {
       const recoveryKey = await this.store.recoveryKey(t.client_id);
@@ -511,7 +508,7 @@ export class AuthSession implements vscode.Disposable {
           delete restored._refresh_request_id;
           await this.store.save(restored);
         }
-        throw new Error(`token refresh HTTP ${resp.status}; credentials retained`);
+        throw new SafeAuthError(`token refresh HTTP ${resp.status}; credentials retained`);
       }
       const rotated = readTokenResponse(data, t.client_id);
       const next: TokenSet = {
@@ -535,7 +532,7 @@ export class AuthSession implements vscode.Disposable {
       this.pendingTokenSave = { previousRefreshToken: t.refresh_token, next };
       await this.store.save(next);
       this.pendingTokenSave = undefined;
-      this.log.info('token refreshed; asked VS Code to pick up new credentials');
+      this.log.info('token refreshed; authentication state changed');
       if (resp.headers.get('rdh-refresh-recovered') === '1') {
         this.log.info('recovered the result of an earlier refresh without opening browser sign-in');
       }
@@ -566,7 +563,7 @@ export class AuthSession implements vscode.Disposable {
           const controller = new AbortController();
           this.signInAbort = controller;
           const deadline = setTimeout(
-            () => controller.abort(new Error('waiting for sign-in timed out')),
+            () => controller.abort(new SafeAuthError('waiting for sign-in timed out')),
             AUTH_TIMEOUT_MS,
           );
           this.log.debug('waiting for another window to finish sign-in');
@@ -628,7 +625,7 @@ export class AuthSession implements vscode.Disposable {
       controller.abort();
     }
     const deadline = setTimeout(
-      () => controller.abort(new Error('sign-in timed out')),
+      () => controller.abort(new SafeAuthError('sign-in timed out')),
       AUTH_TIMEOUT_MS,
     );
     const signal = controller.signal;
@@ -720,7 +717,8 @@ export class AuthSession implements vscode.Disposable {
               }),
             });
             if (reg.status !== 200 && reg.status !== 201) {
-              throw new Error(`register HTTP ${reg.status}: ${(await reg.text()).slice(0, 200)}`);
+              void reg.body?.cancel().catch(() => {});
+              throw new SafeAuthError(`register HTTP ${reg.status}`);
             }
             const clientId = readClientId(await reg.json());
 
@@ -785,7 +783,7 @@ export class AuthSession implements vscode.Disposable {
               return;
             }
             if (result.error) {
-              throw new Error(`${result.error} ${result.errorDescription ?? ''}`);
+              throw callbackError(result.error);
             }
 
             // 5) Exchange the authorization code for tokens
@@ -805,7 +803,8 @@ export class AuthSession implements vscode.Disposable {
               body: body.toString(),
             });
             if (!resp.ok) {
-              throw new Error(`token HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+              void resp.body?.cancel().catch(() => {});
+              throw new SafeAuthError(`token HTTP ${resp.status}`);
             }
             const tok: TokenSet = {
               ...readTokenResponse(await resp.json(), clientId),
@@ -819,7 +818,7 @@ export class AuthSession implements vscode.Disposable {
             tok._refresh_recovery = true;
             await this.store.save(tok);
             this.signInNoticeShown = false;
-            this.log.info('signed in; token stored; asked VS Code to pick up new credentials');
+            this.log.info('signed in; token stored; authentication state changed');
             this.changeEmitter.fire();
             vscode.window.showInformationMessage('Remote Device Hub: signed in');
           } finally {
@@ -857,7 +856,7 @@ export class AuthSession implements vscode.Disposable {
           clientId = saved.clientId;
           credentialIssuer = saved.issuer;
           if (!saved.credential) {
-            throw new Error('No saved token to revoke');
+            throw new SafeAuthError('No saved token to revoke');
           }
           revocation = saved.credential;
         }
@@ -878,7 +877,7 @@ export class AuthSession implements vscode.Disposable {
         try {
           const endpoints = await this.getAuthEndpoints();
           if (!credentialIssuer || credentialIssuer !== endpoints.issuer || !endpoints.revokeUri) {
-            throw new Error('The saved issuer cannot be safely revoked');
+            throw new SafeAuthError('The saved issuer cannot be safely revoked');
           }
           const response = await fetch(endpoints.revokeUri, {
             method: 'POST',
@@ -890,7 +889,7 @@ export class AuthSession implements vscode.Disposable {
           this.log.info(`token revocation: HTTP ${response.status}`);
           await response.body?.cancel();
           if (response.status !== 200) {
-            throw new Error('Revocation was not acknowledged');
+            throw new SafeAuthError('Revocation was not acknowledged');
           }
         } catch {
           revocationFailed = true;

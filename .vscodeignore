@@ -12,3 +12,9 @@ biome.json
 plugin.json
 mcp.json
 CONTRIBUTING.md
+
+node_modules/**
+out/**
+!out/extension.bundle.js
+!out/extension.bundle.js.LEGAL.txt
+!out/THIRD_PARTY_NOTICES.txt
