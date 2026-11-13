@@ -34,8 +34,8 @@ authorize sending messages, spending money, changing accounts, or disclosing dat
 ## Screenshots and human control
 
 Use `browser_screenshot` for the current viewport. The result includes an MCP
-JPEG image block and metadata. Inspect the image through Claude's native image
-support; do not turn its Base64 into prose or claim to have seen it when the
+JPEG image block and metadata. Inspect it through the current host's native
+image support; do not turn its Base64 into prose or claim to have seen it when the
 host/model cannot display it. If unavailable, explain the limitation and use
 semantic observations or offer the returned authenticated `human_url`.
 

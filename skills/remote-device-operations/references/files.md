@@ -1,44 +1,70 @@
 # File operations
 
-Use `list_directory` with `next_offset` for browsing. Prefer `file_info` for
-metadata when the Agent advertises it. Use `read_file_chunk` for bounded file
-browsing when supported, and `read_file` for whole-file text validation and the
-SHA-256 required before an edit. Read offsets and lengths are bytes. For
-`read_file` and `read_file_chunk`, omit
-`length` to use 32768 bytes, or choose 1..65536 (64 KiB) per call. The 1 MiB
-`read_file` file-size limit is not a per-call length: never pass 1048576 as
-`length`. Start at offset 0 and follow `next_offset` while `truncated` is true;
-stop once complete or once the requested scope is satisfied. Do not loop merely
-because the final `next_offset` is a number. Preserve pagination information and
-explain when the result is incomplete. Do not request secret files for an unrelated task.
+Use `list_directory` with `next_offset` for browsing. Check advertised tools
+and device capabilities before using extended file operations. Choose reads
+by purpose:
 
-If the `read_file_chunk` schema offers `encoding`, request `text` for text
-previews and `base64` or `both` for exact bytes. Text can contain replacement
-characters for invalid UTF-8 or a multibyte character split across ranges;
-do not treat it as byte-exact. When available, inspect `utf8_valid` and use
-`content_base64` for exact bytes. A chunk fingerprint is not a whole-file
-SHA-256 and cannot be used as `expected_sha256`.
+| Need | Tool and result |
+| --- | --- |
+| Metadata | `file_info` returns an opaque `fingerprint`, not a content hash |
+| Browse or tail bytes | `read_file_chunk` returns a bounded range, without whole-file SHA-256 |
+| Edit baseline | `read_file` returns current text and the whole-file `sha256`, even when the text is paginated |
 
-For `read_multiple_files`, use at most 16 paths, a per-file `length` no greater
-than 16384 bytes, and `total_limit` no greater than 262144 bytes. Its previews
-do not supply the whole-file SHA-256 needed for an edit.
+Pass the returned `read_file.sha256` unchanged as `expected_sha256`;
+do not hash the displayed preview.
+`read_multiple_files` batches previews; it does not supply whole-file hashes.
+Its limits differ from single-file reads: at most 16 paths, `length` at most
+16384 bytes per file, and `total_limit` at most 262144 bytes for the batch.
+Check individual results for errors and truncation; a partial batch does not
+mean every requested file was read. Use the current schema if limits differ.
 
-For a new file, call `write_file` with an empty `expected_sha256`; this means
-create-only. For an existing file, first read its current contents and SHA-256,
-then use that exact hash with `write_file` or `edit_file`. `edit_file` requires
-one exact match. If the hash is stale or the match is ambiguous, reread and
-reconcile with the requested change. Never retry an overwrite with an empty hash.
-Read the changed file back before reporting that its content matches the task.
+File-read offsets and lengths count source bytes. For `read_file` and
+`read_file_chunk`, omit `length` for 32768 bytes or choose 1..65536 per call.
+The 1 MiB file-size limit is separate from this range limit: `read_file`,
+`edit_file`, and `write_file` reject a file or content over 1 MiB
+(`file_limit_bytes` in `device_info`). `read_file_chunk` browses files up to
+64 MiB but supplies no edit baseline, so the file tools cannot change a larger
+file. Report that limit instead of retrying; a shell command may change such a
+file only with shell permission and authorization for that command.
+For a full read, start at offset 0 and follow the returned `next_offset` while
+`truncated` is true and more content is needed. Stop when complete or the
+requested scope is satisfied; a numeric final `next_offset` alone is not a
+reason to keep reading. Report incomplete reads.
 
-`make_directory` creates one directory whose parent already exists.
-`move_file`, when supported, moves regular files within one named root and
-filesystem; the destination must not exist. Check the source and destination
-and disclose the intended move. There is no dedicated delete-file
-tool; do not claim one exists. A deletion implemented by a shell command is a
-separate, potentially irreversible shell operation requiring the relevant
-authorization and enabled capabilities.
+For the end of a file, such as the tail of a log, call `read_file_chunk` with
+`from_end: true`. It returns the last `length` bytes; a nonzero `offset` then
+skips that many bytes back from the end. The returned `offset` is the start
+byte of the range. When it is greater than 0, earlier content exists, even if
+`truncated` is false.
 
-Use literal `search_files` for a small bounded search. For supported Agents,
-`start_search`, `get_search_results`, `list_searches`, and `stop_search` manage
-an asynchronous search. Follow result offsets and report truncation. Stopping
-a search changes its state; do it only when the task calls for cancellation.
+For `read_file_chunk`, use the advertised `encoding`: `text` for previews,
+`base64` for exact bytes, or `both`. Invalid or split UTF-8 can produce replacement
+characters; inspect `utf8_valid` and use `content_base64` when exact bytes matter.
+A whole-file hash does not mean the displayed text is complete: read the
+relevant ranges before choosing an edit or constructing replacement content.
+Do not request secret files for an unrelated task.
+
+For an existing file, read its current text and `sha256`, reserve an operation
+ID when [recovery](recovery.md) calls for one, then call
+`edit_file` with `path`, `old_text`, `new_text`, and that `expected_sha256`, or
+`write_file` with the replacement content and hash. Both need the selected
+`device_id` and named `root`. `edit_file` requires one exact match. Reread and
+reconcile stale hashes or ambiguous matches; never use an empty hash to overwrite.
+A successful `edit_file` or `write_file` returns the file's new `sha256`: use
+that value as `expected_sha256` for the next change to the same file.
+Read back the affected content before reporting success; a receipt is not content
+verification. For a new file, an empty `write_file.expected_sha256` means create-only.
+
+`make_directory` creates missing parent directories; existing directories succeed.
+`move_file` uses `source` and `destination`, both relative to the same named root.
+It moves regular files within one filesystem; the destination must not exist.
+Check both paths before the move. There is no dedicated delete-file tool;
+a shell deletion needs shell permission and authorization for its effects.
+
+`search_files` takes the search text in `query`. With `content: false`, it matches
+filename substrings; with `content: true`, it searches UTF-8 file contents.
+Search is literal: `*.txt` searches those characters, not a glob or regex.
+For larger searches, use supported `start_search`, `get_search_results`,
+`list_searches`, and `stop_search`. `start_search.pattern` only accepts `literal`;
+the search text still belongs in `query`. Follow offsets and report truncation.
+Stop a search only when the task calls for cancellation.

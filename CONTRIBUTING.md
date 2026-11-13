@@ -49,7 +49,7 @@ npm run skill:check  # report drift without writing
 npm run skill:sync   # copy the skill into them
 ```
 
-Pass `-- --target <checkout>` to select checkouts and `-- --workspace <dir>` when they live elsewhere. The only permitted differences are the host-specific replacements listed in `scripts/sync-skill.cjs`, and each must match the source exactly once. `remote-device-plugin-claude` is synced. The Codex and DSH plugins carry their own skill text.
+Pass `-- --target <checkout>` to select checkouts and `-- --workspace <dir>` when they live elsewhere. The only permitted differences are the host-specific replacements listed in `scripts/sync-skill.cjs`, and each must match the source exactly once. The Claude, Codex, and DSH plugins are synced, retaining their host-specific connection guidance and skill names.
 
 CI has only this checkout. It verifies that the replacements still apply, and cannot compare the other repositories, so run the check before a release.
 
