@@ -1,20 +1,24 @@
 # Remote Device Hub for VS Code
 
-Work on your other machines from VS Code chat. Remote Device Hub (RDH) lets the chat agent read and edit files, check processes, and run commands on the Linux, macOS, and Windows devices you have paired.
+Let Copilot work securely on your private machines. Remote Device Hub (RDH) lets the chat agent read logs, edit files, and run commands on the Linux, macOS, and Windows devices you have paired, wherever they are.
 
 ![Copilot in VS Code reaches Linux, Windows, and macOS devices on separate networks through Remote Device Hub](resources/how-it-works.gif)
 
-The Agent on each device connects out to RDH. There is no inbound firewall rule to open, no SSH session to keep alive, and nothing from VS Code to install on the device.
-
-See [RDH terminology](docs/terminology.md) for the shared product, Agent, authorization and execution concepts.
+The Agent on each device connects out to RDH over an encrypted connection. There is no inbound firewall rule to open, no SSH session to keep alive, and nothing from VS Code to install on the device.
 
 ## Get started
 
-Requires VS Code 1.118 or later and a chat model that supports tools.
+You need:
 
-1. **Pair a device.** Install and start the [Remote Device Agent](https://github.com/easelian/remote-device-agent#install-and-run) on it, choose the folder to share, and approve the pairing in your browser.
-2. **Sign in.** Install this extension. It asks once whether to connect, then opens your browser. If you decline, run **Remote Device Hub: Sign In** when you are ready.
-3. **Ask.** Describe the task in chat:
+- VS Code 1.118 or later with a chat model that supports tools, such as GitHub Copilot.
+- An RDH account. Create one at [rdh.easelian.com](https://rdh.easelian.com).
+- A device to reach, where you can install the Agent.
+
+Then:
+
+1. **Pair a device.** On the device, install and start the [Remote Device Agent](https://github.com/easelian/remote-device-agent#install-and-run), choose the folder to share, and approve the pairing in your browser with your RDH account.
+2. **Sign in.** Install this extension. It asks once whether to connect, then opens your browser. Use the same account. If you decline, run **Remote Device Hub: Sign In** when you are ready.
+3. **Ask.** Open the Chat view and describe the task:
 
    ```text
    List my devices
@@ -23,7 +27,7 @@ Requires VS Code 1.118 or later and a chat model that supports tools.
    In settings.toml on <device>, change log_level to debug and show me the diff
    ```
 
-You never name a tool. The bundled skill tells the agent when and how to use RDH.
+You never name a tool. The bundled skill tells the agent when and how to use RDH. A new device is read-only: the agent can look but not change anything. Turn on file changes or commands on the device when you want them.
 
 ## What it can and cannot do
 
@@ -58,7 +62,7 @@ Search for **Remote Device Hub** in the Command Palette.
 
 ## Privacy
 
-- The extension connects to `https://rdh.easelian.com` and its sign-in service. Sign-in uses OAuth with PKCE in your browser.
+- The extension connects to `https://rdh.easelian.com` and its sign-in service over HTTPS. Sign-in uses OAuth with PKCE in your browser.
 - Your sign-in is kept in VS Code's secret storage and renewed in the background. It is never written to settings, logs, or the package.
 - Tool calls go from VS Code chat to RDH. Results can include remote file contents and command output, and the chat model you selected receives them.
 
@@ -72,4 +76,4 @@ This repository is also an Agent Plugins package (`plugin.json`, `mcp.json`, `sk
 
 ## Contributing and license
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing, and releasing. Easelian publishes this extension under the Apache License 2.0; see [LICENSE](LICENSE).
+[RDH terminology](docs/terminology.md) defines the shared product terms. [CONTRIBUTING.md](CONTRIBUTING.md) covers building, testing, and releasing. Easelian publishes this extension under the Apache License 2.0; see [LICENSE](LICENSE).
