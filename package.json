@@ -2,7 +2,7 @@
   "name": "remote-device-hub",
   "displayName": "Remote Device Hub",
   "description": "Remote Device Hub (RDH) lets Copilot work securely on your private machines: read logs, edit files, run commands. Encrypted, no SSH, no open ports, any network.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "easelian",
   "author": "Easelian",
   "license": "Apache-2.0",

@@ -6,6 +6,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-13
+
 ### Security
 
 - The access token no longer reaches VS Code's stored server entry. Earlier
@@ -121,7 +123,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Last release published without a changelog. See the Git history and GitHub
   releases for earlier changes.
 
-[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.27...v0.1.0
