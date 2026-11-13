@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "remote-device-hub",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Remote Device Hub (RDH) lets your AI agent work securely on your private machines: read logs, edit files, run commands. Encrypted, no SSH, no open ports, any network.",
   "author": {
     "name": "Easelian",

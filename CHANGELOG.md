@@ -6,6 +6,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-13
+
+### Changed
+
+- The Marketplace description says what the extension is for: Copilot working
+  securely on your private machines, encrypted, with no SSH and no open ports.
+- The overview lists what you need before the first step, including an RDH
+  account, and notes that a new device is read-only.
+- The terminology page describes RDH at product level.
+
 ## [0.1.1] - 2026-11-12
 
 ### Changed
@@ -94,7 +104,8 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 - Last release published without a changelog. See the Git history and GitHub
   releases for earlier changes.
 
-[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.27...v0.1.0
 [0.0.27]: https://github.com/easelian/remote-device-plugin-vscode/compare/v0.0.26...v0.0.27
