@@ -23,3 +23,6 @@ jobs:
       - run: npm run style:check
       - name: Test extension and local plugin package
         run: npm test
+      - name: Test Windows excluded-port recovery
+        if: runner.os == 'Windows'
+        run: node --test test/windows-port-reservation.cjs

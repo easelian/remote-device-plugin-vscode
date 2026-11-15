@@ -6,6 +6,12 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+### Fixed
+
+- Credential locking handles Windows `EACCES` bind failures, checks for an
+  existing lock owner, and uses dispersed fallback ports when the original
+  candidate block is unavailable.
+
 ## [0.1.4] - 2026-11-14
 
 ### Changed

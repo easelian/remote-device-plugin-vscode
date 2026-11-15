@@ -14,6 +14,8 @@ npm run package:vsix
 
 The tests run against simulated VS Code APIs with real loopback callbacks and locks. Proxy tests send real HTTP requests through the proxy to a disposable HTTP server. They do not start VS Code, so they cannot show how the editor selects, forwards, or restarts an MCP server. Check those in a real window, including a Remote SSH window and a Copilot session, before a release.
 
+Windows CI also runs `node --test test/windows-port-reservation.cjs` after compiling. This requires an elevated disposable runner: it creates an active eight-port TCP exclusion, verifies native `EACCES` and cross-process lock recovery, then removes the exclusion during cleanup.
+
 Press `F5` to launch the Extension Development Host. With no saved sign-in, the connection prompt must appear before any browser opens, and no RDH server may be listed until sign-in completes.
 
 ## How sign-in behaves

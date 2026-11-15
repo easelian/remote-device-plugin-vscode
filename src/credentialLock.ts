@@ -9,9 +9,13 @@ import * as crypto from 'crypto';
 // The derived port can already belong to an unrelated local service. The owner
 // answers every connection with a scope-bound greeting, so a waiter can tell our
 // lock apart from a foreign listener instead of blocking on a port it can never
-// acquire. A foreign listener moves the scan to the next candidate port; only a
-// matching greeting means another window holds the lock.
+// acquire. Windows can also deny a bind to an excluded or exclusively occupied
+// port with EACCES. Both errors need the same greeting check: only a matching
+// greeting means another window holds the lock.
 const CANDIDATE_COUNT = 8;
+const FALLBACK_COUNT = 8;
+const FALLBACK_RANGE = 49152 - 20000;
+const FALLBACK_STRIDE = 7919;
 const GREETING_PREFIX = 'rdh-credential-lock/1 ';
 const ACQUIRE_DEADLINE_MS = 6 * 60 * 1000;
 const RETRY_DELAY_MS = 100;
@@ -24,10 +28,21 @@ function scopeTag(scope: string): string {
 // Candidate ports for one scope, in scan order. Deterministic for every process
 // and platform, so concurrent windows converge on the same port.
 export function credentialLockPorts(scope: string): number[] {
-  const base = 20000 + (crypto.createHash('sha256').update(scope).digest().readUInt32BE(0) % 30000);
+  const hash = crypto.createHash('sha256').update(scope).digest();
+  const base = 20000 + (hash.readUInt32BE(0) % 30000);
   const ports: number[] = [];
+  // Preserve the original scan order so an older window's lock is still found.
   for (let offset = 0; offset < CANDIDATE_COUNT; offset++) {
     ports.push(20000 + ((base - 20000 + offset) % 30000));
+  }
+  // Exclusions reserve contiguous blocks. Spread fallbacks below the default
+  // Windows dynamic client range instead of extending the original block.
+  const fallback = hash.readUInt32BE(4) % FALLBACK_RANGE;
+  for (let offset = 0; ports.length < CANDIDATE_COUNT + FALLBACK_COUNT; offset++) {
+    const port = 20000 + ((fallback + offset * FALLBACK_STRIDE) % FALLBACK_RANGE);
+    if (!ports.includes(port)) {
+      ports.push(port);
+    }
   }
   return ports;
 }
@@ -42,7 +57,7 @@ interface Lock {
   release(): Promise<void>;
 }
 
-function tryListen(port: number, greeting: string): Promise<Lock | 'in-use'> {
+function tryListen(port: number, greeting: string): Promise<Lock | 'in-use' | 'denied'> {
   const sockets = new Set<net.Socket>();
   const server = net.createServer((socket) => {
     sockets.add(socket);
@@ -61,10 +76,12 @@ function tryListen(port: number, greeting: string): Promise<Lock | 'in-use'> {
         socket.destroy();
       }
     });
-  return new Promise<Lock | 'in-use'>((resolve, reject) => {
+  return new Promise<Lock | 'in-use' | 'denied'>((resolve, reject) => {
     server.once('error', (error: NodeJS.ErrnoException) => {
       if (error.code === 'EADDRINUSE') {
         resolve('in-use');
+      } else if (error.code === 'EACCES') {
+        resolve('denied');
       } else {
         reject(error);
       }
@@ -113,11 +130,17 @@ export async function withCredentialLock<T>(
   let peerOwnsLock = false;
   while (!owner) {
     signal?.throwIfAborted();
+    let deniedPorts = 0;
+    let blockedByPeer = false;
     for (const port of ports) {
+      signal?.throwIfAborted();
       const result = await tryListen(port, greeting);
-      if (result !== 'in-use') {
+      if (typeof result !== 'string') {
         owner = result;
         break;
+      }
+      if (result === 'denied') {
+        deniedPorts++;
       }
       // A release between the failed listen and the probe leaves the port free
       // again. Re-listen once before deciding, so a just-released port is
@@ -126,7 +149,7 @@ export async function withCredentialLock<T>(
       let heldByPeer = await isOurLock(port, greeting);
       if (!heldByPeer) {
         const retry = await tryListen(port, greeting);
-        if (retry !== 'in-use') {
+        if (typeof retry !== 'string') {
           owner = retry;
           break;
         }
@@ -135,12 +158,18 @@ export async function withCredentialLock<T>(
       if (heldByPeer) {
         // Another window holds this scope. It releases on exit; rescan later.
         peerOwnsLock = true;
+        blockedByPeer = true;
         break;
       }
       // A foreign listener owns this port; keep scanning the other candidates.
     }
     if (owner) {
       break;
+    }
+    if (!blockedByPeer && deniedPorts === ports.length) {
+      throw new SafeAuthError(
+        'Could not acquire the credential lock: loopback ports are unavailable',
+      );
     }
     if (Date.now() >= deadline) {
       break;

@@ -6,6 +6,27 @@ const { randomUUID } = require('node:crypto');
 const net = require('node:net');
 const { credentialLockPorts, withCredentialLock } = require('../out/credentialLock');
 
+// These fixtures must bind the primary port themselves. Exercise unavailable
+// ports separately instead of assuming a random Windows port is bindable.
+async function bindableScope() {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const scope = randomUUID();
+    const [port] = credentialLockPorts(scope);
+    const result = await new Promise((resolve) => {
+      const server = net.createServer();
+      server.once('error', resolve);
+      server.listen(port, '127.0.0.1', () => server.close(() => resolve(undefined)));
+    });
+    if (!result) {
+      return scope;
+    }
+    if (!['EACCES', 'EADDRINUSE'].includes(result.code)) {
+      throw result;
+    }
+  }
+  throw new Error('No bindable primary port for the listener fixture');
+}
+
 test('a different process waits for ownership and crash releases the lock', async (t) => {
   const scope = randomUUID();
   const modulePath = require.resolve('../out/credentialLock');
@@ -43,10 +64,23 @@ test('candidate ports are deterministic and stay in the lock range', () => {
   assert.notDeepEqual(credentialLockPorts(randomUUID()), ports);
 });
 
+test('the original port sequence stays compatible and fallbacks span separate blocks', () => {
+  const ports = credentialLockPorts('compatibility-profile');
+  assert.deepEqual(ports.slice(0, 8), [47608, 47609, 47610, 47611, 47612, 47613, 47614, 47615]);
+  assert.equal(ports.length, 16);
+  const fallback = ports.slice(8).sort((a, b) => a - b);
+  for (const [index, port] of fallback.entries()) {
+    assert.ok(port < 49152);
+    if (index > 0) {
+      assert.ok(port - fallback[index - 1] > 1000);
+    }
+  }
+});
+
 test('a foreign listener on the primary port does not block the lock', {
   timeout: 10000,
 }, async (t) => {
-  const scope = randomUUID();
+  const scope = await bindableScope();
   const [primary] = credentialLockPorts(scope);
   const foreign = net.createServer((socket) => {
     socket.on('error', () => {});
@@ -89,7 +123,7 @@ test('a lock holder is recognised across processes instead of being skipped', {
 test('a peer that never disconnects does not keep the lock from releasing', {
   timeout: 10000,
 }, async (t) => {
-  const scope = randomUUID();
+  const scope = await bindableScope();
   const [primary] = credentialLockPorts(scope);
   let idle;
   t.after(() => idle?.destroy());
