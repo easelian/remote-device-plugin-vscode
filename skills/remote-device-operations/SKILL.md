@@ -11,6 +11,21 @@ unfamiliar tool, inspect its current schema for exact argument names and require
 fields. Tool names below omit any host-added namespace; discover the actual
 tools rather than hard-coding a namespace or substituting another MCP server.
 
+## Call tools in the current agent
+
+Keep the user's selected Agent and model. Perform RDH operations directly in
+that agent with the original MCP tools. Do not delegate device discovery or
+execution to a repository search agent. When a tool definition is not loaded,
+use the host's tool search, then invoke the returned qualified tool name with
+its actual schema. A search result alone is not a completed operation.
+
+Local shell commands cannot invoke an MCP tool by its name. Do not use shell to
+probe for tool names, print placeholder calls, or substitute CLI, SSH, or HTTP
+requests. Respect a no-shell request even for local diagnostic commands.
+If a tool is unavailable, report the tool-loading or scope error. Ask for sign-in
+only after an actual authentication failure or the extension status establishes
+that it is needed.
+
 ## Connect and select a device
 
 1. If the connection needs authentication, follow the host. In VS Code with the

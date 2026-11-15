@@ -18,7 +18,7 @@ Then:
 
 1. **Pair a device.** On the device, install and start the [Remote Device Agent](https://github.com/easelian/remote-device-agent#install-and-run), choose the folder to share, and approve the pairing in your browser with your RDH account.
 2. **Sign in.** Install this extension. It asks once whether to connect, then opens your browser. Use the same account. If you decline, run **Remote Device Hub: Sign In** when you are ready.
-3. **Ask.** Open the Chat view and describe the task:
+3. **Ask.** Open the Chat view, keep the default **Agent** and your preferred model, and describe the task:
 
    ```text
    List my devices
@@ -27,7 +27,7 @@ Then:
    In settings.toml on <device>, change log_level to debug and show me the diff
    ```
 
-You never name a tool. The bundled skill tells the agent when and how to use RDH. A new device is read-only: the agent can look but not change anything. Turn on file changes or commands on the device when you want them.
+The default Agent uses the original RDH MCP tools directly. The bundled skill explains device selection, tool arguments, permissions, and result verification. A new device is read-only: the agent can look but not change anything. Turn on file changes or commands on the device when you want them.
 
 ## What it can and cannot do
 
@@ -53,6 +53,7 @@ Search for **Remote Device Hub** in the Command Palette.
 | What you see | What to do |
 | --- | --- |
 | RDH tools do not appear in chat | Run **Sign In**: the RDH server is listed only while you are signed in. Then check in **MCP: List Servers** that it is started, and in the tool picker that its tools are enabled. In Remote SSH, install the extension on the SSH host. |
+| Tool search finds RDH, but a child agent says the tool does not exist | Run the device task directly in the default Agent. Child agents can have a different tool scope; this message alone does not establish a sign-in failure. |
 | Sign-in does not finish | Run **Sign In** again. If VS Code offers **Copy Link**, open the link in your local browser. In Remote SSH, keep the window connected until the browser returns. |
 | No devices are listed, or a device is offline | Check that you signed in with the account the device is paired to, and that the Agent is running on the device. |
 | VS Code shows its own sign-in for RDH, such as **Dynamic Client Registration not supported** | Cancel it. It comes from another RDH entry, such as the agent plugin or a server you configured by hand, and not from this extension. Disable that entry in **MCP: List Servers**. |

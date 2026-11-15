@@ -6,6 +6,16 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-14
+
+### Changed
+
+- Clarified direct RDH MCP tool use in the default Agent and troubleshooting
+  for tools unavailable in a child agent.
+- The operating skill explains tool discovery in the current agent, distinguishes
+  unavailable tools from authentication failures, and prohibits local shell
+  substitutes for MCP calls.
+
 ## [0.1.3] - 2026-11-13
 
 ### Security
