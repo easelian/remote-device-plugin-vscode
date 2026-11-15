@@ -141,24 +141,25 @@ test('simultaneous first use in three windows opens only one authorization', asy
 
 test('concurrent explicit sign-in requests do not retry a declined authorization', async (t) => {
   let decline;
+  let acceptSignIn = false;
   const shared = {};
   const scope = randomUUID();
-  const a = harness(t, {
-    activateOnly: true,
-    shared,
-    scope,
-    confirmSignIn: () =>
-      new Promise((resolve) => {
-        decline = resolve;
-      }),
-  });
-  const b = harness(t, { activateOnly: true, shared, scope });
+  // Either window can acquire the credential lock first.
+  const confirmSignIn = ({ items }) =>
+    acceptSignIn
+      ? items[0]
+      : new Promise((resolve) => {
+          decline = resolve;
+        });
+  const a = harness(t, { activateOnly: true, shared, scope, confirmSignIn });
+  const b = harness(t, { activateOnly: true, shared, scope, confirmSignIn });
   const pending = [a.commands.get('rdh.signIn')(), b.commands.get('rdh.signIn')()];
   await until(() => decline);
   decline(undefined);
   await Promise.all(pending);
   assert.equal(a.signInPrompts.length + b.signInPrompts.length, 1);
   assert.equal(a.opens.length + b.opens.length, 0);
+  acceptSignIn = true;
   await b.commands.get('rdh.signIn')();
   assert.equal(b.opens.length, 1);
 });
