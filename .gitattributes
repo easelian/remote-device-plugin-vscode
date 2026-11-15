@@ -1,0 +1,2 @@
+# Keep text checkouts consistent with EditorConfig and Biome on every platform.
+* text=auto eol=lf
