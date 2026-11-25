@@ -35,7 +35,7 @@ The default Agent uses the original RDH MCP tools directly. The bundled skill ex
 - **Commands** run only if the device allows them, with the OS permissions of the Agent's account. Shared folders do not sandbox commands.
 - **Two gates.** The device decides whether changes and commands are allowed at all. VS Code then asks you to approve tool calls. To keep a session read-only, turn off the write and command tools in the chat tool picker.
 - **The device must be online**, with its Agent running and connected.
-- **Browser tools** are a preview and need an Agent with browser sessions enabled. See the [browser guide](https://github.com/easelian/remote-device-agent/blob/main/docs/browser.md).
+- **Browser tools** are a preview and need an Agent with browser sessions enabled. See the [browser guide](skills/remote-device-operations/references/browser.md).
 
 ## Commands
 

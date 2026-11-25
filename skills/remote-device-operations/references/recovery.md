@@ -8,10 +8,12 @@ or on correlating a receipt from `list_operations`.
 
 Reserve an ID when the task needs to establish what the call itself did, not
 only what state exists now: `start_process`, `write_process_stdin`,
-`terminate_process`, `browser_open`, `browser_act`, `browser_control`, and a
-file change that triggers further effects or whose final state cannot be read
-back reliably. For an ordinary file change where only the final content matters
-and it is verified by reading back, the reservation may be skipped. Skipping it
+`terminate_process`, a consequential `browser_do` call, and a file change that
+triggers further effects or whose final state cannot be read back reliably.
+The Server automatically reserves a receipt for `browser_do` if you omit
+`operation_id`. Reserve it first when you need its exact ID before dispatch.
+For an ordinary file change where only the final content matters and you verify
+it by reading back, the reservation may be skipped. Skipping it
 never permits a blind retry: after a lost response, use the receipt, call
 history, or state inspection first, and do not repeat a change whose outcome is
 uncertain.

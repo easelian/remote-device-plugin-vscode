@@ -77,12 +77,12 @@ Read the relevant reference before operating:
 - [Operation receipts and recovery](references/recovery.md): preparing changes, uncertain results, authentication and quota.
 
 On a device advertising `operation_receipts`, reserve an operation ID before a
-command, process input or termination, a browser open, action, or control
-change, or a file change with further effects. It may be skipped for an
-ordinary file change whose final content you verify by reading back. Read the
-recovery reference, call `prepare_operation`, and pass its returned
-`operation_id` to the target tool on the same device. Never invent IDs or
-repeat an uncertain write, command, browser submission, or upload.
+command, process input or termination, or a file change with further effects.
+For `browser_do`, the Server reserves one automatically. Reserve it first if you
+need the exact ID before dispatch. For an ordinary file change whose final
+content you verify by reading back, you may skip the reservation. When you call
+`prepare_operation`, pass the returned `operation_id` to the target tool on the
+same device. Never invent IDs or repeat an uncertain change or upload.
 
 Report the observed device, affected path/job/session, result, and verification
 limits. A job ID is not completion; browser input acknowledgment is not a
