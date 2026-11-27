@@ -45,7 +45,8 @@ that it is needed.
    target is ambiguous. Do not switch devices or accounts because one is offline.
 4. Call `device_info` and inspect returned roots, capabilities, `allow_write`,
    `allow_shell`, limits, and browser availability. Tools advertised by the
-   Server may not be enabled on this device or for this account.
+   Server may not be enabled on this device or for this account. Browser tools
+   are off unless the account owner turned them on in RDH account settings.
 
 ## Respect the task and execution boundary
 

@@ -12,6 +12,6 @@ Remote Device Hub (RDH) is the Easelian product. Remote Device Agent (Agent) is 
 
 A plugin signs in with OAuth and sends MCP calls to RDH over HTTPS. The Agent keeps an outbound connection to RDH, so nothing listens on the device. A plugin's sign-in, a device's own credential, and a website session have separate purposes and are not interchangeable.
 
-Browser sessions are an opt-in preview. A browser profile stores browser login state; it is separate from an Agent binding or an RDH account. Human takeover is an explicit handoff within a browser session.
+Browser sessions are an opt-in preview. AI use of the browser is off by default for every account; the account owner turns it on in RDH account settings. A browser profile stores browser login state; it is separate from an Agent binding or an RDH account. Human takeover is an explicit handoff within a browser session.
 
 Keep user-facing descriptions at product level. Use the exact names of tools, configuration keys and commands.

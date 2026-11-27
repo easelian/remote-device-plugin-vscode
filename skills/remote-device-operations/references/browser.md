@@ -1,8 +1,12 @@
 # Managed browser sessions
 
-Use the tools advertised by the selected connection and check
-`device_info.capabilities.browser` for the selected device. Browser access
-depends on account entitlement, Agent support, and the device owner's policy.
+Browser tools are off by default. They are listed only after the account
+owner turns on **Allow AI to use the browser** in RDH account settings. If
+they are missing or a call reports that AI browser access is off, tell the user
+where to turn it on; never try to enable it yourself. Use the tools advertised
+by the selected connection and check `device_info.capabilities.browser` for the
+selected device. Browser access also depends on account entitlement, Agent
+support, and the device owner's policy.
 If the device refuses or does not offer browser operations, report the reason.
 Use shell, file, or other device tools only for actions the user authorized
 independently of the page.
